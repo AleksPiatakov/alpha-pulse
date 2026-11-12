@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 
-const SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"] as const;
+const SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT", "AVAXUSDT"] as const;
 type SymbolName = typeof SYMBOLS[number];
 type PeriodStats = {
   label: string; from: number; to: number; trades: number; wins: number;
@@ -21,8 +21,7 @@ type VariantStats = {
   totalNetR: number; averageNetR: number | null; winRate: number | null;
   maxDrawdownR: number; periods: PeriodStats[];
 };
-type ExperimentResult = { success: boolean; experiments?: VariantStats[];
-  partialHistory?: boolean; error?: string; warnings?: string[] };
+type ExperimentResult = TestResult & { experiments?: VariantStats[] };
 type ResultMap = Partial<Record<SymbolName, TestResult>>;
 
 const number = (value: number | null | undefined, digits = 2) =>
@@ -35,51 +34,37 @@ export default function BacktestComparisonPage() {
   const [busy, setBusy] = useState(false);
   const [current, setCurrent] = useState<SymbolName | null>(null);
   const [experimentResults, setExperimentResults] = useState<Partial<Record<SymbolName, ExperimentResult>>>({});
-  const [experimentBusy, setExperimentBusy] = useState(false);
-  const [experimentCurrent, setExperimentCurrent] = useState<SymbolName | null>(null);
 
-  async function runExperiment() {
-    if (busy || experimentBusy) return;
-    setExperimentBusy(true);
-    setExperimentResults({});
-    try {
-      for (const symbol of SYMBOLS) {
-        setExperimentCurrent(symbol);
-        try {
-          const response = await fetch(`/api/backtest?symbol=${symbol}&experiment=1`, { cache: "no-store" });
-          const data = await response.json() as ExperimentResult;
-          setExperimentResults((old) => ({ ...old, [symbol]:
-            response.ok && data.success ? data : { success: false, error: data.error || "Експеримент недоступний." } }));
-        } catch {
-          setExperimentResults((old) => ({ ...old, [symbol]: { success: false, error: "Немає зв'язку з сервером." } }));
-        }
-      }
-    } finally {
-      setExperimentBusy(false);
-      setExperimentCurrent(null);
-    }
-  }
-
-  async function runComparison() {
+  async function runFullAnalysis() {
     if (busy) return;
     setBusy(true);
     setResults({});
+    setExperimentResults({});
     try {
-      // Sequential requests avoid a burst of Bybit pages and keep each failure isolated.
+      // One API call per symbol supplies baseline diagnostics AND all experiment variants.
+      // Sequential execution protects the Bybit kline endpoint from a request burst.
       for (const symbol of SYMBOLS) {
         setCurrent(symbol);
         try {
-          const response = await fetch(`/api/backtest?symbol=${symbol}`, { cache: "no-store" });
-          const data = await response.json() as TestResult;
-          setResults((old) => ({ ...old, [symbol]:
-            response.ok && data.success ? data : { success: false, error: data.error || "Тест недоступний." } }));
+          const response = await fetch(`/api/backtest?symbol=${symbol}&experiment=1`, { cache: "no-store" });
+          const data = await response.json() as ExperimentResult;
+          if (!response.ok || !data.success) {
+            const failed = { success: false, error: data.error || "Тест недоступний." };
+            setResults((old) => ({ ...old, [symbol]: failed }));
+            setExperimentResults((old) => ({ ...old, [symbol]: failed }));
+          } else {
+            setResults((old) => ({ ...old, [symbol]: data }));
+            setExperimentResults((old) => ({ ...old, [symbol]: data }));
+          }
         } catch {
-          setResults((old) => ({ ...old, [symbol]: { success: false, error: "Немає зв'язку з локальним сервером." } }));
+          const failed = { success: false, error: "Немає зв'язку з локальним сервером." };
+          setResults((old) => ({ ...old, [symbol]: failed }));
+          setExperimentResults((old) => ({ ...old, [symbol]: failed }));
         }
       }
     } finally {
-      setCurrent(null);
       setBusy(false);
+      setCurrent(null);
     }
   }
 
@@ -90,21 +75,15 @@ export default function BacktestComparisonPage() {
           <Link href="/" className="text-sm font-semibold text-emerald-400 hover:text-emerald-300">← Сканер</Link>
           <h1 className="text-xl font-bold">Порівняння історичних тестів</h1>
         </div>
-        <div className="flex flex-wrap gap-2">
-        <button type="button" disabled={busy || experimentBusy} onClick={() => void runComparison()}
+        <button type="button" disabled={busy} onClick={() => void runFullAnalysis()}
           className="rounded-lg border border-emerald-500/60 bg-emerald-400 px-4 py-2 text-sm font-bold text-slate-950 disabled:opacity-60">
-          {busy ? `Перевіряється ${current ?? ""}…` : "Перевірити 4 пари Bybit"}
+          {busy ? `Аналіз ${current ?? ""}…` : "Запустити повний аналіз"}
         </button>
-        <button type="button" disabled={busy || experimentBusy} onClick={() => void runExperiment()}
-          className="rounded-lg border border-slate-600 bg-slate-900 px-4 py-2 text-sm font-semibold text-slate-100 disabled:opacity-60">
-          {experimentBusy ? `Експеримент ${experimentCurrent ?? ""}…` : "Порівняти 3 гіпотези"}
-        </button>
-        </div>
       </header>
       <p className="mb-5 text-xs text-slate-400">
-        BTC, ETH, SOL і BNB · 30m / 1h / 4h / 1D · однакові правила · тільки Bybit.
+        8 пар Bybit · 30m / 1h / 4h / 1D · однакові правила · тільки Bybit.
         Результати — історична модель, не прогноз прибутку. Кожна пара перевіряється окремо.
-        Гіпотези — окремі повні симуляції; друга половина історії вже раніше переглядалася, тому не є незалежним holdout.
+        Одна кнопка запускає базовий тест, діагностику і 3 гіпотези. Історія вже переглядалася; нові пари теж є лише дослідницькою вибіркою, не незалежним holdout.
       </p>
       <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-900/70">
         <table className="w-full min-w-[790px] text-left text-sm">
@@ -165,7 +144,7 @@ export default function BacktestComparisonPage() {
       })}
       {SYMBOLS.map((symbol) => {
         const value = experimentResults[symbol];
-        if (!value && experimentCurrent !== symbol) return null;
+        if (!value && current !== symbol) return null;
         return <section key={symbol} className="mt-4 rounded-xl border border-slate-800 bg-slate-900/70 p-4">
           <h2 className="mb-2 font-semibold">{symbol} · Порівняння гіпотез</h2>
           {!value ? <p className="text-sm text-slate-400">Перерахунок усіх варіантів…</p>
