@@ -13,27 +13,57 @@ const cache = new Map<string, { until: number; payload: unknown }>();
 
 const pagesPerInterval: Record<Interval, number> = { "30": 6, "60": 4, "240": 2, D: 1 };
 
-async function barsFor(symbol: string, interval: Interval, now: number): Promise<ReplayBar[]> {
-  const byTime = new Map<number, ReplayBar>();
-  let end: number | undefined;
-  for (let page = 0; page < pagesPerInterval[interval]; page++) {
-    const params = new URLSearchParams({
-      category: "linear", symbol, interval, limit: "1000",
-    });
-    if (end !== undefined) params.set("end", String(end));
-    const response = await fetch(`${PUBLIC_BYBIT_URL}/v5/market/kline?${params.toString()}`, {
-      cache: "no-store", signal: AbortSignal.timeout(15000),
-    });
-    if (!response.ok) throw Error(`Bybit: не отримано свічки ${interval} (сторінка ${page + 1}).`);
-    const data = await response.json() as {
-      retCode: number; result?: { list?: BybitCandle[] }; retMsg?: string;
-    };
-    if (data.retCode !== 0 || !Array.isArray(data.result?.list)) {
-      throw Error(data.retMsg || `Немає історії для ${interval}.`);
+type HistoryLoad = { bars: ReplayBar[]; warnings: string[]; pages: number };
+const transientCode = new Set([10006, 10000, 10016, 10019]);
+const retrySleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+async function requestCandles(symbol: string, interval: Interval, end: number | undefined): Promise<BybitCandle[]> {
+  const params = new URLSearchParams({ category: "linear", symbol, interval, limit: "1000" });
+  if (end !== undefined) params.set("end", String(end));
+  let previous = "Невідома помилка Bybit.";
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const response = await fetch(`${PUBLIC_BYBIT_URL}/v5/market/kline?${params.toString()}`, {
+        cache: "no-store", signal: AbortSignal.timeout(15000),
+      });
+      const data = await response.json() as {
+        retCode?: number; retMsg?: string; result?: { list?: BybitCandle[] };
+      };
+      if (response.ok && data.retCode === 0 && Array.isArray(data.result?.list)) return data.result.list;
+      previous = `Bybit HTTP ${response.status}, code ${data.retCode ?? "unknown"}: ${data.retMsg ?? "Get kline failed"}`;
+      if (response.status !== 429 && response.status < 500 && !transientCode.has(data.retCode ?? -1)) {
+        throw new Error(previous);
+      }
+    } catch (caught) {
+      previous = caught instanceof Error ? caught.message : previous;
+      // Attempt a bounded retry, then report the failure to the caller.
     }
-    if (!data.result.list.length) break;
+    if (attempt < 2) await retrySleep(300 * (attempt + 1));
+  }
+  throw Error(previous);
+}
+
+async function barsFor(symbol: string, interval: Interval, now: number): Promise<HistoryLoad> {
+  const byTime = new Map<number, ReplayBar>();
+  const warnings: string[] = [];
+  let end: number | undefined;
+  let pages = 0;
+  for (let page = 0; page < pagesPerInterval[interval]; page++) {
+    let list: BybitCandle[];
+    try {
+      list = await requestCandles(symbol, interval, end);
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "невідома помилка";
+      // Never discard valid earlier pages when an older Bybit history page fails.
+      // Report partial coverage, not a silent complete backtest.
+      if (page === 0 || byTime.size < 150) throw Error(`${interval}: ${message}`);
+      warnings.push(`${interval}: історія часткова; сторінка ${page + 1} недоступна (${message}).`);
+      break;
+    }
+    if (!list.length) break;
+    pages++;
     let oldest = Infinity;
-    for (const c of data.result.list) {
+    for (const c of list) {
       const time = Number(c[0]);
       if (!Number.isFinite(time) || time < 0) continue;
       oldest = Math.min(oldest, time);
@@ -44,10 +74,10 @@ async function barsFor(symbol: string, interval: Interval, now: number): Promise
       });
     }
     if (!Number.isFinite(oldest) || (end !== undefined && oldest >= end)) break;
-    end = oldest - 1; // Cursor always moves backward. Avoid repeated overlapping pages.
-    if (data.result.list.length < 1000) break;
+    end = oldest - 1;
+    if (list.length < 1000) break;
   }
-  return [...byTime.values()].sort((a, b) => a.time - b.time);
+  return { bars: [...byTime.values()].sort((a, b) => a.time - b.time), warnings, pages };
 }
 
 export async function GET(request: Request) {
@@ -59,9 +89,9 @@ export async function GET(request: Request) {
   if (cached && cached.until > Date.now()) return NextResponse.json(cached.payload);
   try {
     const now = Date.now();
-    const [halfHour, hourly, fourHour, daily] = await Promise.all(
-      intervals.map((interval) => barsFor(symbol, interval, now)),
-    );
+    const loaded = await Promise.all(intervals.map((interval) => barsFor(symbol, interval, now)));
+    const [halfHour, hourly, fourHour, daily] = loaded.map((item) => item.bars);
+    const warnings = loaded.flatMap((item) => item.warnings);
     if (halfHour.length < 150 || hourly.length < 60 || fourHour.length < 60 || daily.length < 60) {
       throw Error("Недостатньо історії Bybit для чотирьох таймфреймів.");
     }
@@ -69,7 +99,7 @@ export async function GET(request: Request) {
       "30": halfHour, "60": hourly, "240": fourHour, D: daily,
     });
     const payload = {
-      success: true, symbol, bars: {
+      success: true, symbol, warnings, partialHistory: warnings.length > 0, pages: loaded.map((item) => item.pages), bars: {
         "30": halfHour.length, "60": hourly.length,
         "240": fourHour.length, D: daily.length,
       },
