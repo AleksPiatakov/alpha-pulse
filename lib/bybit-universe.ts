@@ -68,6 +68,7 @@ export function matchUniverseTickers(tickers: TickerInfo[], eligible: Set<string
     if (eligible.has(t.symbol) && Number.isFinite(Number(t.lastPrice)) && Number(t.lastPrice) > 0)
       symbols.set(t.symbol, t);
   }
-  return [...symbols.values()].sort((a, b) =>
-    Number(b.turnover24h) - Number(a.turnover24h) || a.symbol.localeCompare(b.symbol));
+  // Stable ordering is essential for fair rotating scans; sorting by 24h turnover
+  // on every refresh can shift the index and accidentally skip instruments.
+  return [...symbols.values()].sort((a, b) => a.symbol.localeCompare(b.symbol));
 }
