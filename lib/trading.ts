@@ -11,6 +11,7 @@ export interface TradePlan {
   takeProfit1: number; takeProfit2: number; riskReward: number; expiresAt: string;
   readiness?: { met: number; total: number; missing: string[] };
   qualityGate?: { passed: boolean; reasons: string[]; policy: "intraday-quality-v1"; stopAtr: number | null; rewardRisk: number | null };
+  lifecycle?: { setupReview: string; stopProtection: string; pendingLimit: string };
   reasons: string[]; summary: string; caution: string; nextStep: string; explanationSource: "rule" | "ai"; invalidation: string; status: "ACTIVE" | "REVIEW" | "INVALID";
 }
 export function isDemoEnvironment() { return serverEnv("BYBIT_ENV") === "demo"; }
