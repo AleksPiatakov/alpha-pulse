@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { bybitDemoRequest, isDemoTradingEnabled } from "@/lib/trading";
+import { scanTechnicalPlans } from "@/app/api/scan/route";
+import { GET as getDemoAccount } from "@/app/api/account/route";
 
 const symbolPattern = /^[A-Z0-9]{3,24}USDT$/;
 const error = (message: string, status = 400) => NextResponse.json({ success: false, error: message }, { status });
@@ -24,6 +26,39 @@ export async function POST(request: Request) {
     const qty = positiveNumber(body.qty), price = positiveNumber(body.entryPrice), stopLoss = positiveNumber(body.stopLoss), takeProfit = positiveNumber(body.takeProfit);
     if (!symbolPattern.test(symbol) || !side || !qty || !price || !stopLoss || !takeProfit) return error("Неповний або некоректний торговий план.");
     if ((side === "Buy" && !(stopLoss < price && takeProfit > price)) || (side === "Sell" && !(stopLoss > price && takeProfit < price))) return error("Stop-loss або take-profit не відповідають напрямку позиції.");
+    const planId = typeof body.planId === "string" ? body.planId : "";
+    if (!planId) return error("Не передано ідентифікатор плану. Оновіть сторінку.", 409);
+
+    // The browser cannot authorize prices, stop/target levels or risk on its own.
+    // Rebuild the current top plans on the server immediately before the order.
+    const current = await scanTechnicalPlans();
+    const plan = current.plans.find((item) => item.id === planId && item.symbol === symbol);
+    if (!plan || plan.status !== "ACTIVE" || new Date(plan.expiresAt).getTime() <= Date.now()) {
+      return error("Торговий план застарів або більше не входить до актуального відбору.", 409);
+    }
+    const same = (a: number, b: number) => Math.abs(a - b) <= Math.max(1e-8, Math.abs(b) * 1e-9);
+    if (side !== (plan.direction === "LONG" ? "Buy" : "Sell") ||
+        !same(price, plan.entryPrice) ||
+        !same(stopLoss, plan.stopLoss) ||
+        !same(takeProfit, plan.takeProfit2) ||
+        plan.riskReward < 1.5) {
+      return error("Дані заявки не відповідають поточному серверному плану. Оновіть сторінку.", 409);
+    }
+
+    const accountResponse = await getDemoAccount();
+    if (!accountResponse.ok) return error("Неможливо підтвердити Demo-баланс і ризик. Заявку заблоковано.", 503);
+    const account = await accountResponse.json() as { success?: boolean; balance?: number; activeCount?: number };
+    const equity = account.balance ?? 0;
+    const activeCount = account.activeCount ?? 0;
+    if (!account.success || !Number.isFinite(equity) || equity <= 0 || !Number.isInteger(activeCount) || activeCount < 0) {
+      return error("Недоступні достовірні дані Demo-рахунку.", 503);
+    }
+    if (activeCount >= 3) return error("Досягнуто серверного ліміту: 3 активні позиції або заявки.", 409);
+    const expectedRisk = qty * Math.abs(price - stopLoss);
+    if (!Number.isFinite(expectedRisk) || expectedRisk > equity * 0.01 + 1e-8) {
+      return error("Ризик заявки перевищує серверний ліміт 1% Demo-балансу.", 409);
+    }
+    if (expectedRisk < 0.01) return error("Ризик заявки занадто малий.", 400);
     const payload = JSON.stringify({ category: "linear", symbol, side, orderType: "Limit", qty: String(qty), price: String(price), timeInForce: "GTC", positionIdx: 0, stopLoss: String(stopLoss), takeProfit: String(takeProfit), tpTriggerBy: "MarkPrice", slTriggerBy: "MarkPrice", orderLinkId: `ap-${Date.now()}` });
     const response = await bybitDemoRequest<{ result: { orderId: string; orderLinkId: string } }>("/v5/order/create", "POST", payload);
     return NextResponse.json({ success: true, data: response.result, environment: "demo" });
