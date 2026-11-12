@@ -33,9 +33,43 @@ export default function BacktestComparisonPage() {
   const [results, setResults] = useState<ResultMap>({});
   const [busy, setBusy] = useState(false);
   const [current, setCurrent] = useState<SymbolName | null>(null);
+  const [allExpanded, setAllExpanded] = useState(false);
   const [experimentResults, setExperimentResults] = useState<Partial<Record<SymbolName, ExperimentResult>>>({});
 
-  async function runFullAnalysis() {
+  function toggleDetails() {
+    const expanded = !allExpanded;
+    document.querySelectorAll<HTMLDetailsElement>("[data-backtest-details]").forEach((detail) => {
+      detail.open = expanded;
+    });
+    setAllExpanded(expanded);
+  }
+
+  function exportJson() {
+    const completed = SYMBOLS.filter((symbol) => results[symbol]?.success);
+    if (!completed.length) return;
+    // Only public-market research results. No account data, credentials or API keys.
+    const payload = {
+      kind: "alpha-pulse-backtest",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      symbols: [...SYMBOLS],
+      timeframe: ["30m", "1h", "4h", "1D"],
+      note: "Історична модель, не підтвердження майбутньої прибутковості. Результати тестів включають вже переглянуті періоди.",
+      results: Object.fromEntries(SYMBOLS.map((symbol) => [symbol, results[symbol] ?? null])),
+      experiments: Object.fromEntries(SYMBOLS.map((symbol) => [symbol, experimentResults[symbol]?.experiments ?? null])),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "alpha-pulse-backtest-results.json";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+    async function runFullAnalysis() {
     if (busy) return;
     setBusy(true);
     setResults({});
@@ -75,16 +109,28 @@ export default function BacktestComparisonPage() {
           <Link href="/" className="text-sm font-semibold text-emerald-400 hover:text-emerald-300">← Сканер</Link>
           <h1 className="text-xl font-bold">Порівняння історичних тестів</h1>
         </div>
-        <button type="button" disabled={busy} onClick={() => void runFullAnalysis()}
-          className="rounded-lg border border-emerald-500/60 bg-emerald-400 px-4 py-2 text-sm font-bold text-slate-950 disabled:opacity-60">
-          {busy ? `Аналіз ${current ?? ""}…` : "Запустити повний аналіз"}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" onClick={toggleDetails}
+            className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-slate-500">
+            {allExpanded ? "Згорнути все" : "Розгорнути все"}
+          </button>
+          <button type="button" onClick={exportJson}
+            disabled={!SYMBOLS.some((symbol) => results[symbol]?.success)}
+            className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-slate-500 disabled:opacity-40">
+            Експорт JSON
+          </button>
+          <button type="button" disabled={busy} onClick={() => void runFullAnalysis()}
+            className="rounded-lg border border-emerald-500/60 bg-emerald-400 px-4 py-2 text-sm font-bold text-slate-950 disabled:opacity-60">
+            {busy ? `Аналіз ${current ?? ""}…` : "Запустити повний аналіз"}
+          </button>
+        </div>
       </header>
       <p className="mb-5 text-xs text-slate-400">
         8 пар Bybit · 30m / 1h / 4h / 1D · однакові правила · тільки Bybit.
         Результати — історична модель, не прогноз прибутку. Кожна пара перевіряється окремо.
         Одна кнопка запускає базовий тест, діагностику і 3 гіпотези. Історія вже переглядалася; нові пари теж є лише дослідницькою вибіркою, не незалежним holdout.
       </p>
+      <p className="mb-3 text-xs text-slate-400">Для передачі результатів у ChatGPT натисни «Експорт JSON» і прикріпи отриманий файл до чату — скриншоти не потрібні.</p>
       <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-900/70">
         <table className="w-full min-w-[790px] text-left text-sm">
           <thead className="border-b border-slate-800 text-xs text-slate-400">
@@ -127,7 +173,7 @@ export default function BacktestComparisonPage() {
               <p className="mt-1 text-slate-400">Середнє: {number(period.averageNetR, 3)} R · Сума: {number(period.totalNetR)} R · Просідання: {number(period.maxDrawdownR)} R</p>
             </div>)}
           </div>
-          {!!result.diagnostics?.length && <details className="mt-3 rounded-lg border border-slate-800 p-3 text-xs">
+          {!!result.diagnostics?.length && <details data-backtest-details className="mt-3 rounded-lg border border-slate-800 p-3 text-xs">
             <summary className="cursor-pointer font-semibold text-slate-200">Діагностика причин результатів · напрямок, обсяг, відстань, тренд</summary>
             <p className="my-2 text-slate-400">Групи сформовано з уже виконаних історичних угод. Це опис даних, а не підтверджені правила для майбутніх входів.</p>
             <div className="overflow-x-auto"><table className="w-full min-w-[550px] text-left">
