@@ -108,14 +108,26 @@ export function isCompletedBar(openTime: number, durationMs: number, observedAt:
     openTime + durationMs <= observedAt;
 }
 
+/**
+ * Rounds to a validated Bybit priceFilter.tickSize, rather than guessing decimals.
+ * Nearest tick is an analytical approximation; this does not model order side or slippage.
+ */
+export function roundToTick(value: number, tickSize: number): number {
+  if (!(Number.isFinite(value) && Number.isFinite(tickSize) && tickSize > 0 && tickSize <= 1e9)) return NaN;
+  const decimals = Math.min(12, (tickSize.toString().split(".")[1] || "").length);
+  return Number((Math.round(value / tickSize) * tickSize).toFixed(decimals));
+}
+
 /** Avoid computing quality or trades on a nonpositive rounded risk/reward. */
 export function roundedPlanLevels(
   direction: TechnicalDirection, entry: number, stop: number, target: number,
+  tickSize?: number,
 ): { entry: number; stop: number; target: number; rr: number } | null {
   if (![entry, stop, target].every(Number.isFinite) || entry <= 0 || stop <= 0 || target <= 0) return null;
-  const roundedEntry = roundPlanPrice(entry);
-  const roundedStop = roundPlanPrice(stop);
-  const roundedTarget = roundPlanPrice(target);
+  const round = tickSize === undefined ? roundPlanPrice : (value: number) => roundToTick(value, tickSize);
+  const roundedEntry = round(entry);
+  const roundedStop = round(stop);
+  const roundedTarget = round(target);
   const rr = rewardRisk(direction, roundedEntry, roundedStop, roundedTarget);
   const stopOnLossSide = direction === "LONG" ? roundedStop < roundedEntry : roundedStop > roundedEntry;
   const targetOnProfitSide = direction === "LONG" ? roundedTarget > roundedEntry : roundedTarget < roundedEntry;
