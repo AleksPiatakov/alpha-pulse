@@ -13,6 +13,12 @@ Status: **NOT EQUIVALENT**. This is a source-code audit, not independent reprodu
 - Both set Stop at max(1.25× 1h ATR, 2× 30m ATR) and cap the 2.4R target at a confirmed daily pivot, buffered by 0.05R.
 - Both call `evaluateScenarioQuality` for the eight readiness checks. The replay only trades `ACTIVE`; the scanner also surfaces `REVIEW`.
 
+## Implementation progress (2026-11-12)
+
+**Stage 1 complete — shared deterministic calculation core:** `lib/technical-plan-core.ts` is imported by both `lib/market-scan.ts` and `lib/mtf-backtest.ts`. It now owns EMA20/50, ATR, trend selection, confirmed swing levels, nearest level across timeframes, ATR-based stop, buffered daily target and reward/risk. The scanner and replay convert their respective candle representations to the common `PriceBar` shape. Regression fixtures in `test/technical-plan-core.test.mjs` cover technical calculations and pivot confirmation.
+
+**Parity is still partial.** The unified price-bar mathematics does not unify observed ticker price, 24h statistics, Demo/public feed, decimal rounding or timing. Historical performance must still be described as a close-only proxy, not an exact live-scanner audit. No production trading rules or Demo order permissions were changed.
+
 ## Material differences
 
 | Severity | Difference | Live scanner | Historical replay | Impact |
