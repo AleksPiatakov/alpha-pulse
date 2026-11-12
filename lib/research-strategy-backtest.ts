@@ -14,7 +14,7 @@ export type ResearchTrade = {
   exit: number; outcome: "SL" | "TP" | "TIMEOUT"; netR: number;
 };
 export type ResearchReplay = {
-  strategy: StrategyKey; model: ResearchExecution; signals: number; unfilled: number;
+  strategy: StrategyKey; model: ResearchExecution; signals: number; unfilled: number; censored: number;
   filled: number; wins: number; totalNetR: number; averageNetR: number | null;
   maxDrawdownR: number; trades: ResearchTrade[]; assumptions: string[];
 };
@@ -49,7 +49,7 @@ export function replayResearchStrategy(
   if(!detector)throw new Error("Невідома дослідницька стратегія.");
   const bars={ "30":validSorted(raw["30"]), "60":validSorted(raw["60"]),
     "240":validSorted(raw["240"]) };
-  let signals=0,unfilled=0;const trades:ResearchTrade[]=[];
+  let signals=0,unfilled=0,censored=0;const trades:ResearchTrade[]=[];
   const fee=model==="conservative"?0.00075:0.00055;
   let i=0;
   while(i<bars["30"].length-1) {
@@ -63,6 +63,8 @@ export function replayResearchStrategy(
       m30:priceBars(h30),h1:priceBars(h1),h4:priceBars(h4)};
     const candidate=detector.evaluate(context);
     if(!candidate){i++;continue;}
+    // Do not score a new order when its full 3h pending window is unobservable.
+    if(i+7>bars["30"].length){censored++;i++;continue;}
     signals++;
     const {direction,entry,stop,target}=candidate;
     let entryIndex=-1;
@@ -81,7 +83,8 @@ export function replayResearchStrategy(
       const c=bars["30"][j];
       const stopHit=direction==="LONG"?c.low<=stop:c.high>=stop;
       const targetHit=direction==="LONG"?c.high>=target:c.low<=target;
-      const outcome=stopHit?"SL":targetHit?"TP":j===endHolding-1?"TIMEOUT":null;
+      const fullHoldingObserved = entryIndex + 48 <= bars["30"].length;
+      const outcome=stopHit?"SL":targetHit?"TP":j===endHolding-1 && fullHoldingObserved?"TIMEOUT":null;
       if(!outcome)continue;
       let exit=outcome==="SL"?stop:outcome==="TP"?target:c.close;
       if(model==="conservative" && outcome!=="TP"){
@@ -96,9 +99,9 @@ export function replayResearchStrategy(
         netR:Number((net/risk).toFixed(4))});
       i=j+1;closed=true;break;
     }
-    if(!closed)i=endHolding;
+    if(!closed){censored++;i=endHolding;}
   }
-  return {strategy,model,signals,unfilled,filled:trades.length,...summary(trades),trades,
+  return {strategy,model,signals,unfilled,censored,filled:trades.length,...summary(trades),trades,
     assumptions:[
       "Лише завершені свічки, рішення після закриття 30m; 1h/4h без підглядання майбутнього.",
       "Модель Limit-входу: до 6 наступних 30m свічок; консервативно потрібне проникнення 1 tick.",
@@ -106,7 +109,7 @@ export function replayResearchStrategy(
       model==="conservative"?"Комісія 0.075% за сторону; SL 10 bps плюс несприятливий gap, TIMEOUT 5 bps.":"Комісія 0.055% за сторону; без додаткового прослизання.",
       "Одна модельна позиція/заявка на стратегію і пару. OHLC не показує реального порядку подій усередині свічки.",
       "Не враховано bid/ask spread, funding, ринковий вплив, портфельний ризик або зміну tickSize в історії.",
-      "Сигнали з останніх свічок без достатнього майбутнього для моделювання не є підтвердженими результатами.",
+      "Сигнали та відкриті позиції без достатнього майбутнього відмічаються censored, а не вигаданими TIMEOUT або SL/TP.",
       "Це дослідницька модель, не незалежна перевірка і не дозвіл на торгівлю.",
     ]};
 }
