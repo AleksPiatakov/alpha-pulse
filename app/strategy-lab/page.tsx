@@ -138,10 +138,10 @@ export default function StrategyLabPage() {
       </header>
       <p className="mb-4 max-w-4xl text-sm text-slate-400">
         Спільні збережені свічки Bybit, фіксований кінець {cutoff}, два режими витрат.
-        Кандидати A1–A3 наразі лише фільтри поточної MTF, а не незалежні торгові алгоритми.
+        Ціль — якість Entry / Stop Loss / Take Profit, а не кількість угод за день. A1–A3 і B — дослідні варіанти на основі MTF, а не незалежні підтверджені алгоритми.
         Результати цієї історії вже відомі, тому вони не є фінальною перевіркою прибутковості.
       </p>
-      <div className="mb-5 grid gap-3 md:grid-cols-4">
+      <div className="mb-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         {LAB_CANDIDATES.map((candidate) => <section key={candidate.key} className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
           <h2 className="font-semibold">{candidate.label}</h2>
           <p className="mt-2 text-xs leading-relaxed text-slate-400">{candidate.description}</p>
@@ -152,10 +152,10 @@ export default function StrategyLabPage() {
         <h2 className="mb-1 text-lg font-semibold">Порівняння стратегій</h2>
         <p className="mb-4 text-xs text-slate-400">Сума R по парах — не прибуток портфеля. Друга половина використана для діагностики, не є незалежним holdout.</p>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[880px] text-left text-sm">
+          <table className="w-full min-w-[1000px] text-left text-sm">
             <thead className="border-b border-slate-700 text-xs text-slate-400">
               <tr><th className="py-3">Кандидат</th><th>Угод</th><th>Базовий R</th><th>Стрес R</th>
-                <th>Середній R</th><th>Profit Factor</th><th>Stop %</th><th>Перша / друга половина R</th><th>Прибуткові пари</th></tr>
+                <th>Середній R</th><th>Profit Factor</th><th>Stop %</th><th>Медіана утримання, год</th><th>Перша / друга половина R</th><th>Прибуткові пари</th></tr>
             </thead>
             <tbody>{rows.map((row) => <tr key={row.key} className="border-b border-slate-800">
               <td className="py-3 pr-3 font-semibold">{row.label}</td>
@@ -165,12 +165,14 @@ export default function StrategyLabPage() {
               <td>{fmt(row.normal?.meanR, 3)}</td>
               <td>{fmt(row.normal?.profitFactor)}</td>
               <td>{fmt(row.normal?.stopRate, 1)}</td>
+              <td>{fmt(row.normal?.medianHoldHours, 1)}</td>
               <td>{fmt(row.normal?.firstHalfR)} / {fmt(row.normal?.secondHalfR)}</td>
               <td>{row.normal ? `${row.normal.profitableSymbols}/${row.normal.testedSymbols}` : "—"}</td>
             </tr>)}</tbody>
           </table>
         </div>
-        {complete && <p className="mt-3 text-xs text-amber-200">Жоден кандидат не схвалено для Demo чи реальної торгівлі: незалежний майбутній період і перевірка портфельного ризику ще потрібні.</p>}
+        {complete && <p className="mt-3 text-xs text-amber-200">Жоден кандидат не схвалено для Demo чи реальної торгівлі: незалежний майбутній період і перевірка портфельного ризику ще потрібні. Кількість угод не є цільовим KPI.</p>}
+        <p className="mt-2 text-xs text-slate-400">B · Intraday Quality: попередній фільтр якості (score ≥ 90, R:R ≥ 2, відстань ≤ 0,75 ATR, стоп 0,8–3 ATR). Ордер живе до 3 год, утримання до 24 год; це максимальні тривалості моделі, а не гарантія закриття в межах календарного дня.</p>
       </section>
       <section className="mb-5 rounded-xl border border-slate-800 bg-slate-900/70 p-4">
         <h2 className="mb-2 text-lg font-semibold">Дані й перевірка повноти</h2>
