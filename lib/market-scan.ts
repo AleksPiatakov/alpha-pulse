@@ -128,23 +128,88 @@ async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null):
   };
 }
 
-export async function scanTechnicalPlans() {
-  const response = await fetch(`${DEMO_BYBIT_URL}/v5/market/tickers?category=linear`, { cache: "no-store" });
-  if (!response.ok) throw new Error("Bybit market unavailable.");
+const CYCLE_BATCH = 24;
+const MAX_VISIBLE = 100;
+const seenPlans = new Map<string, { plan: TradePlan; checkedAt: number }>();
+let scanCursor = 0;
+let latestScan: { until: number; value: ScanResult } | undefined;
+let activeScan: Promise<ScanResult> | undefined;
+const SCAN_INTERVAL = 20_000;
+const PLAN_TTL = 15 * 60_000;
+export type ScanResult = {
+  plans: TradePlan[];
+  scanned: number;
+  eligible: number;
+  analyzed: number;
+  covered: number;
+  category: "linear";
+  rejectionCounts: Record<FilterReason, number>;
+};
+
+async function doScan(): Promise<ScanResult> {
+  const response = await fetch(`${DEMO_BYBIT_URL}/v5/market/tickers?category=linear`, {
+    cache: "no-store", signal: AbortSignal.timeout(12000),
+  });
+  if (!response.ok) throw new Error("Bybit market request failed");
   const data = await response.json() as { retCode: number; retMsg?: string; result?: { list?: Ticker[] } };
   if (data.retCode !== 0 || !data.result?.list) throw new Error(data.retMsg || "Не вдалося отримати ринок Bybit.");
-  const eligible = data.result.list.filter((ticker) => ticker.symbol.endsWith("USDT") && Number(ticker.turnover24h) >= 20_000_000);
-  const analyzed = eligible.sort((a, b) => Number(b.turnover24h) - Number(a.turnover24h)).slice(0, 24);
+  // No artificial symbol cap. Every liquid linear instrument is covered in a rotating cycle.
+  const eligible = data.result.list.filter((ticker) =>
+    Number.isFinite(Number(ticker.lastPrice)) && Number(ticker.lastPrice) > 0 &&
+    Number(ticker.turnover24h) >= 1_000_000);
+  eligible.sort((a, b) => Number(b.turnover24h) - Number(a.turnover24h));
+  const universe = new Set(eligible.map((ticker) => ticker.symbol));
+  for (const symbol of seenPlans.keys()) if (!universe.has(symbol)) seenPlans.delete(symbol);
+  if (scanCursor >= eligible.length) scanCursor = 0;
+  const batch = eligible.slice(scanCursor, scanCursor + CYCLE_BATCH);
+  scanCursor = (scanCursor + batch.length) % Math.max(eligible.length, 1);
   const rejectionCounts: Record<FilterReason, number> = {
     candles: 0, trend: 0, volume: 0, momentum: 0,
     distance: 0, prices: 0, daily_level: 0, reward_risk: 0, error: 0,
   };
-  const results = await Promise.allSettled(analyzed.map((ticker) =>
+  const results = await Promise.allSettled(batch.map((ticker) =>
     makePlan(ticker, (reason) => { rejectionCounts[reason]++; return null; })));
-  rejectionCounts.error += results.filter((r) => r.status === "rejected").length;
-  const plans = results.flatMap((r) => r.status === "fulfilled" && r.value ? [r.value] : [])
+  const now = Date.now();
+  results.forEach((result, i) => {
+    const symbol = batch[i].symbol;
+    if (result.status === "fulfilled" && result.value) {
+      seenPlans.set(symbol, { plan: result.value, checkedAt: now });
+    } else {
+      seenPlans.delete(symbol);
+      if (result.status === "rejected") rejectionCounts.error++;
+    }
+  });
+  for (const [symbol, record] of seenPlans) {
+    if (now - record.checkedAt > PLAN_TTL) seenPlans.delete(symbol);
+  }
+  const plans = [...seenPlans.values()].map((record) => record.plan)
     .sort((a, b) => b.score - a.score || b.riskReward - a.riskReward || a.symbol.localeCompare(b.symbol))
-    .slice(0, 6);
-  return { plans, scanned: data.result.list.length, eligible: eligible.length, analyzed: analyzed.length, rejectionCounts };
+    .slice(0, MAX_VISIBLE);
+  return { plans, scanned: data.result.list.length, eligible: eligible.length,
+    analyzed: batch.length, covered: seenPlans.size, category: "linear", rejectionCounts };
 }
 
+export async function scanTechnicalPlans(): Promise<ScanResult> {
+  if (latestScan && latestScan.until > Date.now()) return latestScan.value;
+  if (activeScan) return activeScan;
+  activeScan = doScan();
+  try {
+    const result = await activeScan;
+    latestScan = { until: Date.now() + SCAN_INTERVAL, value: result };
+    return result;
+  } finally {
+    activeScan = undefined;
+  }
+}
+
+// The order endpoint must independently refresh the chosen symbol,
+// rather than trusting cached or rotating scanner results.
+export async function verifyCurrentTechnicalPlan(symbol: string): Promise<TradePlan | null> {
+  const tickers = await fetch(`${DEMO_BYBIT_URL}/v5/market/tickers?category=linear&symbol=${encodeURIComponent(symbol)}`,
+    { cache: "no-store", signal: AbortSignal.timeout(12000) });
+  if (!tickers.ok) return null;
+  const data = await tickers.json() as { retCode: number; result?: { list?: Ticker[] } };
+  const ticker = data.retCode === 0 ? data.result?.list?.find((item) => item.symbol === symbol) : undefined;
+  if (!ticker) return null;
+  return makePlan(ticker, () => null);
+}
