@@ -33,8 +33,8 @@ export function calculatePosition(input: {
   const { balance, activeCount, settings, entryPrice, stopLoss, takeProfit } = input;
   // Cap notional to available USDT (1x conservative assumption); leverage is not inferred.
   // Clients must never substitute a guessed balance when authorizing an order.
-  const available = Number.isFinite(input.availableBalance) && (input.availableBalance ?? 0) >= 0
-    ? input.availableBalance! : balance;
+  const available = input.availableBalance === undefined ? balance :
+    Number.isFinite(input.availableBalance) && input.availableBalance >= 0 ? input.availableBalance : 0;
   const valid = [balance, available, entryPrice, stopLoss, takeProfit].every(Number.isFinite) &&
     balance > 0 && available > 0 && entryPrice > 0 && stopLoss > 0 && takeProfit > 0;
   const riskPerPlan = valid ? balance * settings.riskPercent / 100 : 0;
