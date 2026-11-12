@@ -47,13 +47,22 @@ export async function POST(request: Request) {
 
     const accountResponse = await getDemoAccount();
     if (!accountResponse.ok) return error("Неможливо підтвердити Demo-баланс і ризик. Заявку заблоковано.", 503);
-    const account = await accountResponse.json() as { success?: boolean; balance?: number; activeCount?: number };
+    const account = await accountResponse.json() as { success?: boolean; balance?: number; availableBalance?: number | null; activeCount?: number };
     const equity = account.balance ?? 0;
     const activeCount = account.activeCount ?? 0;
     if (!account.success || !Number.isFinite(equity) || equity <= 0 || !Number.isInteger(activeCount) || activeCount < 0) {
       return error("Недоступні достовірні дані Demo-рахунку.", 503);
     }
     if (activeCount >= 3) return error("Досягнуто серверного ліміту: 3 активні позиції або заявки.", 409);
+    const freeMargin = account.availableBalance;
+    if (typeof freeMargin !== "number" || !Number.isFinite(freeMargin) || freeMargin <= 0) {
+      return error("Bybit не повернув доступну маржу. Безпечний розмір Demo-заявки не підтверджено.", 503);
+    }
+    // Never rely on browser position sizing. Conservative 1x cap; no assumed leverage.
+    const notional = qty * price;
+    if (!Number.isFinite(notional) || notional > freeMargin + 1e-6) {
+      return error("Номінал Demo-заявки перевищує доступну маржу Bybit (ліміт 1x).", 409);
+    }
     const expectedRisk = qty * Math.abs(price - stopLoss);
     if (!Number.isFinite(expectedRisk) || expectedRisk > equity * 0.01 + 1e-8) {
       return error("Ризик заявки перевищує серверний ліміт 1% Demo-балансу.", 409);
