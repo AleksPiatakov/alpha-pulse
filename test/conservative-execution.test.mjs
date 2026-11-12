@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  CONSERVATIVE_EXECUTION, qualifiesLimitFill, stressedExitPrice,
+  CONSERVATIVE_EXECUTION, executionStressFlags, EXECUTION_STRESS_CASES, qualifiesLimitFill, stressedExitPrice,
   replayMultiTimeframeStrategy,
 } from "../lib/mtf-backtest.ts";
 
@@ -32,4 +32,22 @@ test("conservative simulation requires explicit price tick size", () => {
   const result = replayMultiTimeframeStrategy(empty, undefined, "baseline", 0.1, "conservative");
   assert.equal(result.filled, 0);
   assert.ok(result.assumptions.some((item) => item.includes("0.075%")));
+});
+
+test("stress factors remain independent and the combined mode preserves existing assumptions", () => {
+  assert.deepEqual(executionStressFlags("reference"), { fees: false, slippage: false, limit: false });
+  assert.deepEqual(executionStressFlags("fees-only"), { fees: true, slippage: false, limit: false });
+  assert.deepEqual(executionStressFlags("slippage-only"), { fees: false, slippage: true, limit: false });
+  assert.deepEqual(executionStressFlags("fill-only"), { fees: false, slippage: false, limit: true });
+  assert.deepEqual(executionStressFlags("conservative"), { fees: true, slippage: true, limit: true });
+  assert.equal(new Set(EXECUTION_STRESS_CASES.map((item) => item.key)).size, 5);
+});
+
+test("no tick required for fee and slippage attribution; Limit stress remains fail-closed", () => {
+  const empty = { "30": [], "60": [], "240": [], D: [] };
+  const base = replayMultiTimeframeStrategy(empty, undefined, "baseline");
+  assert.equal(replayMultiTimeframeStrategy(empty, undefined, "baseline", undefined, "fees-only").filled, base.filled);
+  assert.equal(replayMultiTimeframeStrategy(empty, undefined, "baseline", undefined, "slippage-only").filled, base.filled);
+  assert.throws(() => replayMultiTimeframeStrategy(empty, undefined, "baseline", undefined, "fill-only"), /tickSize/);
+  assert.ok(replayMultiTimeframeStrategy(empty, undefined, "baseline", 0.1, "fees-only").assumptions.some((x) => x.includes("0.075%")));
 });
