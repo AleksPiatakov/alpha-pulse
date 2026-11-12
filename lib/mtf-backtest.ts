@@ -5,6 +5,14 @@ export type ReplayBar = {
   volume: number; turnover: number;
 };
 export type ReplayDirection = "LONG" | "SHORT";
+export type ReplayVariant = "baseline" | "near-entry" | "moderate-trend" | "lower-volume";
+export const REPLAY_VARIANTS: ReadonlyArray<{ key: ReplayVariant; label: string }> = [
+  { key: "baseline", label: "Поточні правила" },
+  { key: "near-entry", label: "Вхід не далі 1 ATR" },
+  { key: "moderate-trend", label: "Сила тренду 4h < 1 ATR" },
+  { key: "lower-volume", label: "Обсяг 1h < 1,2×" },
+];
+
 export type ReplayTrade = {
   signalTime: number; entryTime: number; exitTime: number;
   direction: ReplayDirection; entry: number; stop: number; target: number;
@@ -108,7 +116,7 @@ type Setup = { direction: ReplayDirection; entry: number; stop: number; target: 
   diagnostics: { score: number; readiness: number; relativeVolume: number; distanceAtr: number;
     rewardRisk: number; trendStrengthAtr: number; entryDelayBars: number } };
 
-function evaluateAt(history: ReplayTimeframes): Setup | null {
+function evaluateAt(history: ReplayTimeframes, variant: ReplayVariant): Setup | null {
   const h30 = history["30"], h60 = history["60"], h240 = history["240"], daily = history.D;
   if (h30.length < 60 || h60.length < 60 || h240.length < 60 || daily.length < 60) return null;
   const direction30m = trend(h30), direction1h = trend(h60), direction4h = trend(h240);
@@ -146,7 +154,11 @@ function evaluateAt(history: ReplayTimeframes): Setup | null {
   });
   const atr4h = atr(h240);
   const trendStrengthAtr = atr4h > 0 ? Math.abs(h240.at(-1)!.close - ema(h240, 50)) / atr4h : 0;
-  return quality.status === "ACTIVE" ? {
+  if (quality.status !== "ACTIVE") return null;
+  if (variant === "near-entry" && distanceAtr > 1) return null;
+  if (variant === "moderate-trend" && trendStrengthAtr >= 1) return null;
+  if (variant === "lower-volume" && relativeVolume >= 1.2) return null;
+  return {
     direction, entry, stop, target,
     diagnostics: { score: quality.score, readiness: quality.confirmedConditions,
       relativeVolume, distanceAtr, rewardRisk: reward / Math.abs(stop - entry),
@@ -175,6 +187,7 @@ export function summarizeTrades(trades: ReplayTrade[]) {
 export function replayMultiTimeframeStrategy(
   raw: ReplayTimeframes,
   feeRate = feePerSide,
+  variant: ReplayVariant = "baseline",
 ): ReplaySummary {
   const bars = {
     "30": prepare(raw["30"]), "60": prepare(raw["60"]),
@@ -205,7 +218,7 @@ export function replayMultiTimeframeStrategy(
     };
     if (Object.entries(minHistory).some(([key, length]) =>
       h[key as keyof ReplayTimeframes].length < length)) { i++; continue; }
-    const setup = evaluateAt(h);
+    const setup = evaluateAt(h, variant);
     if (!setup) { i++; continue; }
     signals++;
     const { direction, entry, stop, target } = setup;
