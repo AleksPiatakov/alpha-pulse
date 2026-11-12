@@ -2,6 +2,7 @@ import { calculatePlanningLevels, assessPlanningLevels } from "./trade-planning-
 import { INTRADAY_POLICY_V1 } from "./intraday-quality.ts";
 import { emaBars, atrBars, trendBars, nearestSwingLevel } from "./technical-plan-core.ts";
 import { closedBarAt, TIMEFRAME_MS, type MarketTimeframe } from "./market-observation-clock.ts";
+import { closedMarketFeatures } from "./closed-market-features.ts";
 
 export type ReplayBar = {
   time: number; open: number; high: number; low: number; close: number;
@@ -140,12 +141,11 @@ function evaluateAt(history: ReplayTimeframes, variant: ReplayVariant, tickSize?
   const direction = direction4h, price = h30.at(-1)!.close;
   const a30 = atrBars(h30), a60 = atrBars(h60);
   if (!(a30 > 0 && a60 > 0)) return null;
-  const volumeAverage = h60.slice(-31, -1).reduce((sum, b) => sum + b.volume, 0) / 30;
-  if (!(volumeAverage > 0)) return null;
-  const relativeVolume = h60.at(-1)!.volume / volumeAverage;
-  const previousPrice = h60.at(-25)!.close;
-  const change = price / previousPrice - 1;
-  const turnover24h = h60.slice(-24).reduce((sum, b) => sum + b.turnover, 0);
+  const features = closedMarketFeatures(h60);
+  if (!features) return null;
+  const relativeVolume = features.relativeVolume1h;
+  const change = features.change24h;
+  const turnover24h = features.turnover24h;
   const p30 = nearestSwingLevel(h30, direction, price);
   const p60 = nearestSwingLevel(h60, direction, price);
   const p240 = nearestSwingLevel(h240, direction, price);
@@ -213,8 +213,8 @@ export function replayMultiTimeframeStrategy(
   }
   const assumptions = [
     "Walk-forward 30m/1h/4h/1D: кожне рішення використовує лише повністю закриті свічки.",
-    "Правила EMA20/50, підтверджених swing-рівнів, ATR і перевірок готовності; історичний 24h оборот — сума годинних turnover Bybit.",
-    tickSize === undefined ? "Entry/SL/TP округлюються за десятковою схемою сканера (без біржового tickSize)." : `Entry/SL/TP округлюються за біржовим tickSize=${tickSize}; це окремий експериментальний режим, сканер поки округлює інакше.`,
+    "Правила EMA20/50, підтверджених swing-рівнів, ATR і перевірок готовності; 24h зміна, оборот та відносний 1h обсяг беруться зі спільного модуля закритих годинних свічок.",
+    tickSize === undefined ? "Entry/SL/TP округлюються за десятковою схемою сканера (без біржового tickSize)." : `Entry/SL/TP округлюються за біржовим tickSize=${tickSize}; живий сканер також застосовує tickSize для актуальних контрактів.`,
     "Limit діє до 6 годин, після входу позиція утримується максимум 48 годин; одночасно одна позиція.",
     "Базова комісія 0.055% за вхід і вихід; стрес-сценарії перевизначають витрати тільки для вибраних факторів.",
     "Якщо стоп і ціль торкнуті в одній свічці, пріоритет має Stop Loss. Заповнення Limit за OHLC моделюється, не гарантоване.",
