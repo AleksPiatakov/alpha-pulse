@@ -79,7 +79,7 @@ function TradePageContent() {
     if (!plan || !sizing?.canOpen || analysisState !== "current") return;
     setBusy(true); setMessage(undefined);
     try {
-      const response = await fetch("/api/trade", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ symbol: plan.symbol, side: plan.direction === "LONG" ? "Buy" : "Sell", qty: Number(sizing.quantity.toFixed(8)), entryPrice: plan.entryPrice, stopLoss: plan.stopLoss, takeProfit: plan.takeProfit2 }) });
+      const response = await fetch("/api/trade", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ planId: plan.id, symbol: plan.symbol, side: plan.direction === "LONG" ? "Buy" : "Sell", qty: Number(sizing.quantity.toFixed(8)), entryPrice: plan.entryPrice, stopLoss: plan.stopLoss, takeProfit: plan.takeProfit2 }) });
       const data = await response.json() as { success?: boolean; error?: string; data?: { orderId: string } };
       if (!response.ok || !data.success) throw new Error(data.error || "Не вдалося поставити заявку.");
       setMessage(`Demo Limit-заявку поставлено. Bybit order ID: ${data.data?.orderId ?? "отримано"}`);
