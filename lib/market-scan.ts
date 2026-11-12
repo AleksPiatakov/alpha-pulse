@@ -1,5 +1,6 @@
 import { DEMO_BYBIT_URL, roundPrice, type PlanDirection, type TradePlan } from "@/lib/trading";
 import { evaluateScenarioQuality } from "@/lib/scenario-quality";
+import { fetchLinearUniverse, matchUniverseTickers, type UniverseResult } from "./bybit-universe.ts";
 import { emaValues as ema, atrBars, trendBars, nearestSwingLevel, nearestAcrossTimeframes, stopFromAtr, structuralTarget, rewardRisk, isCompletedBar, type PriceBar } from "./technical-plan-core.ts";
 
 type Ticker = { symbol: string; lastPrice: string; price24hPcnt: string; turnover24h: string };
@@ -103,6 +104,15 @@ async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null):
 }
 
 const CYCLE_BATCH = 24; // API request batch, NOT a limit on the market universe
+const UNIVERSE_TTL = 10 * 60_000;
+let universeCache: { until: number; registry: UniverseResult } | undefined;
+async function currentUniverse(): Promise<UniverseResult> {
+  if (universeCache && universeCache.until > Date.now()) return universeCache.registry;
+  const registry = await fetchLinearUniverse(DEMO_BYBIT_URL);
+  if (registry.eligibleSymbols.size === 0) throw new Error("Bybit не повернув доступних USDT-інструментів.");
+  universeCache = { until: Date.now() + UNIVERSE_TTL, registry };
+  return registry;
+}
 const MAX_VISIBLE = 100;
 const seenPlans = new Map<string, { plan: TradePlan; checkedAt: number }>();
 const visited = new Set<string>();
@@ -119,20 +129,22 @@ export type ScanResult = {
   analyzed: number;
   covered: number;
   category: "linear";
+  universePages: number; universeInstruments: number; unsupportedInstruments: number;
+  coveragePercent: number; cycleCompleted: boolean;
   rejectionCounts: Record<FilterReason, number>;
 };
 
 async function doScan(): Promise<ScanResult> {
-  const response = await fetch(`${DEMO_BYBIT_URL}/v5/market/tickers?category=linear`, {
+  const [registry, response] = await Promise.all([currentUniverse(), fetch(`${DEMO_BYBIT_URL}/v5/market/tickers?category=linear`, {
     cache: "no-store", signal: AbortSignal.timeout(12000),
-  });
+  })]);
   if (!response.ok) throw new Error("Bybit market request failed");
   const data = await response.json() as { retCode: number; retMsg?: string; result?: { list?: Ticker[] } };
   if (data.retCode !== 0 || !data.result?.list) throw new Error(data.retMsg || "Не вдалося отримати ринок Bybit.");
-  // Scan the complete available linear ticker universe; liquidity affects readiness, not discovery.
-  const eligible = data.result.list.filter((ticker) =>
-    ticker.symbol.endsWith("USDT") && Number.isFinite(Number(ticker.lastPrice)) && Number(ticker.lastPrice) > 0);
-  eligible.sort((a, b) => Number(b.turnover24h) - Number(a.turnover24h));
+  // Every active USDT linear instrument in Bybit's paginated registry is discoverable.
+  // Tickers missing from the market response are not silently declared analyzed.
+  const eligible = matchUniverseTickers(data.result.list, registry.eligibleSymbols);
+  if (eligible.length === 0) throw new Error("Bybit не повернув котирувань для торгових інструментів.");
   const universe = new Set(eligible.map((ticker) => ticker.symbol));
   for (const symbol of seenPlans.keys()) if (!universe.has(symbol)) seenPlans.delete(symbol);
   for (const symbol of visited) if (!universe.has(symbol)) visited.delete(symbol);
@@ -181,7 +193,12 @@ async function doScan(): Promise<ScanResult> {
     .sort((a, b) => (a.status === "ACTIVE" ? -1 : 1) - (b.status === "ACTIVE" ? -1 : 1) || b.score - a.score || b.riskReward - a.riskReward || a.symbol.localeCompare(b.symbol))
     .slice(0, MAX_VISIBLE);
   return { plans, scanned: data.result.list.length, eligible: eligible.length,
-    analyzed: batch.length, covered: visited.size, category: "linear", rejectionCounts };
+    analyzed: batch.length, covered: visited.size, category: "linear",
+    universePages: registry.pages, universeInstruments: registry.eligibleSymbols.size,
+    unsupportedInstruments: registry.rejectedUnsupported + registry.rejectedNonTrading,
+    coveragePercent: Number((100 * visited.size / eligible.length).toFixed(1)),
+    cycleCompleted: visited.size === eligible.length,
+    rejectionCounts };
 }
 
 export async function scanTechnicalPlans(): Promise<ScanResult> {
