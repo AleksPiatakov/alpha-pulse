@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { PUBLIC_BYBIT_URL } from "@/lib/trading";
 import { isCompletedBar } from "@/lib/technical-plan-core";
+import { loadSnapshot, persistSnapshot, sealSnapshot } from "@/lib/backtest-snapshot";
 import { replayMultiTimeframeStrategy, REPLAY_VARIANTS, type ReplayBar, type ReplayTimeframes } from "@/lib/mtf-backtest";
 
 const symbolPattern = /^[A-Z0-9]{3,24}USDT$/;
@@ -102,24 +103,57 @@ export async function GET(request: Request) {
   const experimental = params.get("experiment") === "1";
   const pinned = params.get("fixed") === "1";
   const exchangeTicks = params.get("ticks") === "1";
+  const snapshotMode = params.get("snapshot") === "auto";
+  if (snapshotMode && (!pinned || !exchangeTicks)) {
+    return NextResponse.json({ success: false, error: "Знімки потребують fixed=1 і ticks=1." }, { status: 400 });
+  }
   if (!symbolPattern.test(symbol)) {
     return NextResponse.json({ success: false, error: "Некоректний інструмент." }, { status: 400 });
   }
-  const cacheKey = `${symbol}:${experimental ? "experiment" : "standard"}:${pinned ? "fixed" : "moving"}:${exchangeTicks ? "tick" : "decimal"}`;
+  const cacheKey = `${symbol}:${experimental ? "experiment" : "standard"}:${pinned ? "fixed" : "moving"}:${exchangeTicks ? "tick" : "decimal"}:${snapshotMode ? "snapshot" : "live"}`;
   const cached = cache.get(cacheKey);
   if (cached && cached.until > Date.now()) return NextResponse.json(cached.payload);
   try {
     const cutoff = pinned ? COMPARISON_END : Date.now();
-    const [loaded, tickSize] = await Promise.all([
-      Promise.all(intervals.map((interval) => barsFor(symbol, interval, cutoff, pinned))),
-      exchangeTicks ? instrumentTickSize(symbol) : Promise.resolve(undefined),
-    ]);
-    const [halfHour, hourly, fourHour, daily] = loaded.map((item) => item.bars);
-    const warnings = loaded.flatMap((item) => item.warnings);
-    if (halfHour.length < 150 || hourly.length < 60 || fourHour.length < 60 || daily.length < 60) {
-      throw Error("Недостатньо історії Bybit для чотирьох таймфреймів.");
+    let snapshot = snapshotMode ? await loadSnapshot(symbol, cutoff) : null;
+    let tickSize: number | undefined;
+    let raw: ReplayTimeframes;
+    let warnings: string[];
+    let pages: number[];
+    if (snapshot) {
+      // No Bybit requests on repeated runs: prices, volume, timestamp and tick metadata
+      // come from the exact same verified local file.
+      raw = snapshot.bars;
+      tickSize = snapshot.tickSize;
+      warnings = snapshot.warnings;
+      pages = snapshot.pages;
+    } else {
+      const [loaded, currentTick] = await Promise.all([
+        Promise.all(intervals.map((interval) => barsFor(symbol, interval, cutoff, pinned))),
+        exchangeTicks ? instrumentTickSize(symbol) : Promise.resolve(undefined),
+      ]);
+      const [halfHour, hourly, fourHour, daily] = loaded.map((item) => item.bars);
+      warnings = loaded.flatMap((item) => item.warnings);
+      pages = loaded.map((item) => item.pages);
+      if (halfHour.length < 150 || hourly.length < 60 || fourHour.length < 60 || daily.length < 60) {
+        throw Error("Недостатньо історії Bybit для чотирьох таймфреймів.");
+      }
+      raw = { "30": halfHour, "60": hourly, "240": fourHour, D: daily };
+      tickSize = currentTick;
+      if (snapshotMode) {
+        if (warnings.length) throw Error("Часткову історію не можна фіксувати як перевірений знімок.");
+        snapshot = sealSnapshot({
+          schema: 1, symbol, cutoff, source: "bybit-public-linear",
+          capturedAt: new Date().toISOString(), tickSize: tickSize!, bars: raw, warnings, pages,
+        });
+        await persistSnapshot(snapshot);
+        // In parallel captures, another immutable snapshot may have won the race.
+        snapshot = await loadSnapshot(symbol, cutoff);
+        if (!snapshot) throw Error("Знімок не збережено.");
+        raw = snapshot.bars;
+        tickSize = snapshot.tickSize;
+      }
     }
-    const raw = { "30": halfHour, "60": hourly, "240": fourHour, D: daily };
     const result = replayMultiTimeframeStrategy(raw, undefined, "baseline", tickSize);
     // Each hypothesis performs a new replay (with its own pending Limit orders and positions).
     // Never filter completed baseline trades and mistake that for a real strategy variant.
@@ -132,10 +166,13 @@ export async function GET(request: Request) {
     const payload = {
       success: true, symbol, warnings, partialHistory: warnings.length > 0,
       comparisonCutoff: cutoff, fixedComparison: pinned, tickSize: tickSize ?? null,
+      snapshotSha256: snapshot?.sha256 ?? null,
+      snapshotCapturedAt: snapshot?.capturedAt ?? null,
+      snapshotStorage: snapshot ? "local-immutable-file" : "not-saved",
       roundingMode: exchangeTicks ? "bybit-tick-size" : "scanner-decimals",
-      pages: loaded.map((item) => item.pages), bars: {
-        "30": halfHour.length, "60": hourly.length,
-        "240": fourHour.length, D: daily.length,
+      pages, bars: {
+        "30": raw["30"].length, "60": raw["60"].length,
+        "240": raw["240"].length, D: raw.D.length,
       },
       ...result, experiments, trades: result.trades,
     };
