@@ -128,6 +128,7 @@ export default function StrategyLabPage() {
         </div>
         <div className="flex gap-2">
           <Link href="/backtest" className="rounded-lg border border-slate-700 px-3 py-2 text-sm hover:border-slate-400">Детальні тести</Link>
+          <Link href="/research-strategies" className="rounded-lg border border-cyan-700 px-3 py-2 text-sm text-cyan-200 hover:border-cyan-400">Нові стратегії · тестування</Link>
           <button type="button" onClick={exportStudy} disabled={!complete}
             className="rounded-lg border border-slate-700 px-3 py-2 text-sm disabled:opacity-40">Експорт дослідження</button>
           <button type="button" disabled={running} onClick={() => void runStudy()}
