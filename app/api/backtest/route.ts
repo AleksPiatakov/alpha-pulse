@@ -3,6 +3,8 @@ import { PUBLIC_BYBIT_URL } from "@/lib/trading";
 import { isCompletedBar } from "@/lib/technical-plan-core";
 import { loadSnapshot, persistSnapshot, sealSnapshot } from "@/lib/backtest-snapshot";
 import { replayMultiTimeframeStrategy, REPLAY_VARIANTS, EXECUTION_STRESS_CASES, type ReplayBar, type ReplayTimeframes } from "@/lib/mtf-backtest";
+import { replayResearchStrategy } from "@/lib/research-strategy-backtest";
+import { RESEARCH_STRATEGIES } from "@/lib/research-strategies";
 
 const symbolPattern = /^[A-Z0-9]{3,24}USDT$/;
 type BybitCandle = [string, string, string, string, string, string, string];
@@ -101,16 +103,20 @@ export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const symbol = (params.get("symbol") || "").toUpperCase();
   const experimental = params.get("experiment") === "1";
+  const research = params.get("research") === "1";
   const pinned = params.get("fixed") === "1";
   const exchangeTicks = params.get("ticks") === "1";
   const snapshotMode = params.get("snapshot") === "auto";
+  if (research && (!pinned || !exchangeTicks || !snapshotMode)) {
+    return NextResponse.json({ success: false, error: "Нові стратегії потребують fixed=1, ticks=1 і snapshot=auto." }, { status: 400 });
+  }
   if (snapshotMode && (!pinned || !exchangeTicks)) {
     return NextResponse.json({ success: false, error: "Знімки потребують fixed=1 і ticks=1." }, { status: 400 });
   }
   if (!symbolPattern.test(symbol)) {
     return NextResponse.json({ success: false, error: "Некоректний інструмент." }, { status: 400 });
   }
-  const cacheKey = `${symbol}:${experimental ? "experiment" : "standard"}:${pinned ? "fixed" : "moving"}:${exchangeTicks ? "tick" : "decimal"}:${snapshotMode ? "snapshot" : "live"}`;
+  const cacheKey = `${symbol}:${experimental ? "experiment" : "standard"}:${pinned ? "fixed" : "moving"}:${exchangeTicks ? "tick" : "decimal"}:${snapshotMode ? "snapshot" : "live"}:${research ? "research" : "baseline"}`;
   const cached = cache.get(cacheKey);
   if (cached && cached.until > Date.now()) return NextResponse.json(cached.payload);
   try {
@@ -187,8 +193,14 @@ export async function GET(request: Request) {
           trades: run.trades, assumptions: run.assumptions,
         };
       }) : undefined;
+    const researchStrategies = research && tickSize !== undefined && warnings.length === 0
+      ? RESEARCH_STRATEGIES.map(({key}) => ({key,
+          reference: replayResearchStrategy(raw, symbol, tickSize, key, "reference"),
+          conservative: replayResearchStrategy(raw, symbol, tickSize, key, "conservative"),
+        })) : undefined;
     const payload = {
       success: true, symbol, warnings, partialHistory: warnings.length > 0,
+      researchStrategies, researchOnly: true,
       comparisonCutoff: cutoff, fixedComparison: pinned, tickSize: tickSize ?? null,
       snapshotSha256: snapshot?.sha256 ?? null,
       snapshotCapturedAt: snapshot?.capturedAt ?? null,
