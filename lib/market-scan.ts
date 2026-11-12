@@ -3,6 +3,7 @@ import { calculatePlanningLevels, assessPlanningLevels } from "./trade-planning-
 import { explainPlanLifecycle } from "./trade-plan-lifecycle.ts";
 import { closedMarketFeatures } from "./closed-market-features.ts";
 import { sealMarketInputSnapshot, type MarketInputSnapshot, type SnapshotTimeframes } from "./market-input-snapshot.ts";
+import { compareFrozenMarketPlan } from "./snapshot-parity.ts";
 import { closedBarAt, observationMetadata, type MarketTimeframe } from "./market-observation-clock.ts";
 import { fetchLinearUniverse, matchUniverseTickers, type UniverseResult, type InstrumentMeta } from "./bybit-universe.ts";
 import { parseExecutionRules } from "./bybit-execution-rules.ts";
@@ -280,5 +281,8 @@ export async function captureAndEvaluateMarketSnapshot(symbol: string) {
   const repeated = await makePlan(ticker, ()=>null, instrument, observedAt, snapshot.candles);
   if (JSON.stringify(plan) !== JSON.stringify(repeated))
     throw new Error("Невідтворюваний результат плану на одному знімку.");
-  return {...sealed, plan, deterministic: true, orderEnabled: false as const};
+  const parity = compareFrozenMarketPlan(sealed, plan);
+  if (!parity.scannerMatches)
+    throw new Error(`Знайдено розбіжності незалежної перевірки: ${parity.mismatches.join(", ")}.`);
+  return {...sealed, plan, parity, deterministic: true, orderEnabled: false as const};
 }
