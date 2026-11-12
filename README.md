@@ -1,4 +1,10 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+Alpha Pulse creates **Demo-only** rule-based trade plans for Bybit Linear USDT contracts. It is not investment advice and it does not use mainnet credentials.
+
+## Demo setup
+
+Copy `.env.example` to `.env.local`, add keys created specifically for Bybit Demo Trading, and keep `BYBIT_ENV=demo`. Order placement remains off until `BYBIT_TRADING_ENABLED=true` is set deliberately.
+
+The scanner produces up to six 1h EMA/ATR/relative-volume setups. The terminal creates a GTC Limit order with the plan's entry, stop-loss and take-profit. Review every plan before placing it.
 
 ## Getting Started
 
