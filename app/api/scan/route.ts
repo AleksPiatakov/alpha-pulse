@@ -95,8 +95,8 @@ export async function GET() {
     const analyzed = eligible.sort((a, b) => Number(b.turnover24h) - Number(a.turnover24h)).slice(0, 18);
     const plans = (await Promise.all(analyzed.map(makePlan))).filter((plan): plan is TradePlan => plan !== null).sort((a, b) => b.score - a.score).slice(0, 6);
     const ai = await createAiExplanations(plans);
-    const enrichedPlans = plans.map((plan) => ai[plan.id] ? { ...plan, ...ai[plan.id], explanationSource: "ai" as const } : plan);
-    return NextResponse.json({ success: true, scanned: data.result.list.length, eligible: eligible.length, analyzed: analyzed.length, plans: enrichedPlans, generatedAt: new Date().toISOString() });
+    const enrichedPlans = plans.map((plan) => ai.explanations[plan.id] ? { ...plan, ...ai.explanations[plan.id], explanationSource: "ai" as const } : plan);
+    return NextResponse.json({ success: true, scanned: data.result.list.length, eligible: eligible.length, analyzed: analyzed.length, plans: enrichedPlans, aiStatus: ai.status, generatedAt: new Date().toISOString() });
   } catch (caught) {
     return NextResponse.json({ success: false, error: caught instanceof Error ? caught.message : "Помилка сканування." }, { status: 502 });
   }
