@@ -1,5 +1,6 @@
 import { DEMO_BYBIT_URL, roundPrice, type PlanDirection, type TradePlan } from "@/lib/trading";
 import { evaluateScenarioQuality } from "@/lib/scenario-quality";
+import { evaluateIntradayPlan } from "./intraday-quality.ts";
 import { fetchLinearUniverse, matchUniverseTickers, type UniverseResult } from "./bybit-universe.ts";
 import { emaValues as ema, atrBars, trendBars, nearestSwingLevel, nearestAcrossTimeframes, stopFromAtr, structuralTarget, rewardRisk, isCompletedBar, type PriceBar } from "./technical-plan-core.ts";
 
@@ -77,6 +78,10 @@ async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null):
     pivotDaily: dPivot !== null, hasTargetLevel: hasDailyTarget,
   });
   const { score } = quality;
+  // Quality assessment remains explicitly exploratory, separate from MTF readiness.
+  const gate = evaluateIntradayPlan({ direction, entry: entryPrice, stop: roundedStop,
+    target: roundedTarget, atr30m: volatility30m, distanceAtr: entryDistanceAtr,
+    score, readiness: quality.confirmedConditions, rewardRisk: actualRR });
   const caution = quality.status === "ACTIVE" ? "Навіть узгоджені технічні умови не гарантують виконання Limit-заявки або прибутку." : `Непідтверджено: ${quality.checks.slice(0, 2).join("; ") || "потрібна повторна перевірка"}.`;
   return {
     id: `${ticker.symbol}-${direction}-${Math.round(entry * 1e6)}`,
@@ -84,6 +89,9 @@ async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null):
     direction,
     score,
     readiness: { met: quality.confirmedConditions, total: quality.totalConditions, missing: quality.checks },
+    qualityGate: { passed: gate.accepted, reasons: gate.reasons, policy: "intraday-quality-v1",
+      stopAtr: Number.isFinite(gate.stopAtr) ? Number(gate.stopAtr.toFixed(3)) : null,
+      rewardRisk: Number.isFinite(gate.rewardRisk) ? Number(gate.rewardRisk.toFixed(3)) : null },
     currentPrice: roundPrice(price),
     entryPrice,
     entryLow: roundPrice(entry - zoneHalfWidth),
