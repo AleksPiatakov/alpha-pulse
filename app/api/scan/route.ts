@@ -4,7 +4,9 @@ import { scanTechnicalPlans } from "@/lib/market-scan";
 
 export async function GET() {
   try {
-    const { plans, scanned, eligible, analyzed, covered, category, rejectionCounts } = await scanTechnicalPlans();
+    const { plans, scanned, eligible, analyzed, covered, category, rejectionCounts,
+      universePages, universeInstruments, unsupportedInstruments,
+      coveragePercent, cycleCompleted } = await scanTechnicalPlans();
     const ai = await createAiExplanations(plans.slice(0, 6));
     const enrichedPlans = plans.map((plan) =>
       ai.explanations[plan.id]
@@ -13,6 +15,8 @@ export async function GET() {
     );
     return NextResponse.json({
       success: true, scanned, eligible, analyzed, covered, category, rejectionCounts,
+      universePages, universeInstruments, unsupportedInstruments,
+      coveragePercent, cycleCompleted,
       plans: enrichedPlans, aiStatus: ai.status,
       generatedAt: new Date().toISOString(),
     });
