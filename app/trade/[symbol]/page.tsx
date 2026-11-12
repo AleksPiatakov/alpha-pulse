@@ -9,8 +9,9 @@ import { TradingChart } from "@/app/components/TradingChart";
 
 type AccountSnapshot = { balance: number; activeCount: number; source: string };
 type ScanResponse = { success?: boolean; plans?: TradePlan[]; error?: string };
-type BacktestData = { success: boolean; count?: number; wins?: number; winRate?: number | null;
-  averageNetR?: number | null; bars?: number; assumptions?: string[]; error?: string };
+type BacktestData = { success: boolean; mode?: string; filled?: number; signals?: number; unfilled?: number;
+  wins?: number; winRate?: number | null; totalNetR?: number; averageNetR?: number | null;
+  assumptions?: string[]; error?: string };
 const price = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 6 })}`;
 const money = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 function storedSettings() { try { return normalizeRiskSettings(JSON.parse(localStorage.getItem(RISK_SETTINGS_KEY) || "null")); } catch { return defaultRiskSettings; } }
@@ -117,16 +118,16 @@ function TradePageContent() {
             <div className="grid grid-cols-2 gap-3 border-y border-slate-800 py-4 text-sm"><Stat label="Ризик" value={money(sizing?.allowedRisk ?? 0)} accent="text-rose-300" /><Stat label="Обсяг" value={(sizing?.quantity ?? 0).toLocaleString(undefined, { maximumFractionDigits: 5 })} /><Stat label="Номінал" value={money(sizing?.notional ?? 0)} accent="text-cyan-300" /><Stat label="Вільні слоти" value={`${sizing?.slotsRemaining ?? 0}/${settings.maxPositions}`} /></div>
             <details className="group rounded-lg bg-slate-950/70 p-3"><summary className="cursor-pointer text-xs font-semibold text-slate-300">Логіка та умова скасування</summary><div className="mt-3 space-y-3"><div className="flex flex-wrap gap-1.5">{plan.reasons.map((reason) => <span key={reason} className="rounded bg-slate-800 px-2 py-1 text-[11px] text-slate-300">{reason}</span>)}</div><p className="text-xs leading-relaxed text-amber-100">Скасувати: {plan.invalidation}</p></div></details>
             <details className="rounded-lg bg-slate-950/70 p-3">
-              <summary className="cursor-pointer text-xs font-semibold text-slate-300">Історична діагностика 1h</summary>
+              <summary className="cursor-pointer text-xs font-semibold text-slate-300">Історичний тест 30m / 1h / 4h / 1D</summary>
               <button type="button" onClick={() => void loadBacktest()} disabled={backtestBusy}
                 className="mt-3 rounded border border-slate-700 px-3 py-1.5 text-xs text-slate-200 disabled:opacity-50">
                 {backtestBusy ? "Перевіряю…" : "Перевірити на історії Bybit"}
               </button>
               {backtest && <div className="mt-3 space-y-2 text-xs text-slate-300">
                 {backtest.success
-                  ? <p>Угод: {backtest.count} · Прибуткових: {backtest.wins} · Частка: {backtest.winRate ?? "—"}% · Середнє: {backtest.averageNetR ?? "—"} R</p>
+                  ? <p>Сигналів: {backtest.signals ?? 0} · Виконано: {backtest.filled ?? 0} · Без входу: {backtest.unfilled ?? 0} · Прибуткових: {backtest.wins ?? 0} · Частка: {backtest.winRate === null ? "—" : `${backtest.winRate}%`} · Середнє: {backtest.averageNetR ?? "—"} R</p>
                   : <p className="text-amber-200">{backtest.error}</p>}
-                <p className="text-amber-200">Це окремий спрощений тест 1h, НЕ перевірка поточного багатотаймфреймового алгоритму.</p>
+                <p className="text-amber-200">Walk-forward тест чотирьох таймфреймів з наближеним виконанням Limit. Історична ефективність не гарантує майбутню.</p>
                 {backtest.assumptions && <ul className="list-inside list-disc space-y-1 text-slate-400">
                   {backtest.assumptions.map((item) => <li key={item}>{item}</li>)}
                 </ul>}
