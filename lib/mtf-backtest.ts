@@ -9,6 +9,7 @@ export type ReplayTrade = {
   signalTime: number; entryTime: number; exitTime: number;
   direction: ReplayDirection; entry: number; stop: number; target: number;
   netR: number; result: "TP" | "SL" | "TIMEOUT";
+  diagnostics?: { score: number; readiness: number; relativeVolume: number; distanceAtr: number; rewardRisk: number; trendStrengthAtr: number; entryDelayBars: number };
 };
 export type ReplaySummary = {
   mode: "mtf-walk-forward";
@@ -17,6 +18,8 @@ export type ReplaySummary = {
   winRate: number | null; averageNetR: number | null; totalNetR: number;
   from: number | null; to: number | null; trades: ReplayTrade[];
   maxDrawdownR: number;
+  diagnostics: Array<{ label: string; trades: number; wins: number; winRate: number | null;
+    totalNetR: number; averageNetR: number | null; maxDrawdownR: number }>;
   periods: Array<{ label: string; from: number; to: number; trades: number; wins: number;
     winRate: number | null; totalNetR: number; averageNetR: number | null; maxDrawdownR: number }>;
   assumptions: string[];
@@ -101,7 +104,9 @@ function targetFromDaily(bars: ReplayBar[], direction: ReplayDirection, entry: n
     Math.max(...candidates) + 0.05 * risk;
   return direction === "LONG" ? Math.min(ideal, obstacle) : Math.max(ideal, obstacle);
 }
-type Setup = { direction: ReplayDirection; entry: number; stop: number; target: number };
+type Setup = { direction: ReplayDirection; entry: number; stop: number; target: number;
+  diagnostics: { score: number; readiness: number; relativeVolume: number; distanceAtr: number;
+    rewardRisk: number; trendStrengthAtr: number; entryDelayBars: number } };
 
 function evaluateAt(history: ReplayTimeframes): Setup | null {
   const h30 = history["30"], h60 = history["60"], h240 = history["240"], daily = history.D;
@@ -139,7 +144,13 @@ function evaluateAt(history: ReplayTimeframes): Setup | null {
     pivot1h: p60 !== null, pivot4h: p240 !== null, pivotDaily: pd !== null,
     hasTargetLevel: true,
   });
-  return quality.status === "ACTIVE" ? { direction, entry, stop, target } : null;
+  const trendStrengthAtr = Math.abs(h240.at(-1)!.close - ema(h240, 50)) / atr(h240);
+  return quality.status === "ACTIVE" ? {
+    direction, entry, stop, target,
+    diagnostics: { score: quality.score, readiness: quality.confirmedConditions,
+      relativeVolume, distanceAtr, rewardRisk: reward / Math.abs(stop - entry),
+      trendStrengthAtr, entryDelayBars: 0 },
+  } : null;
 }
 
 export function summarizeTrades(trades: ReplayTrade[]) {
@@ -175,6 +186,7 @@ export function replayMultiTimeframeStrategy(
     "Комісія 0.055% за вхід і вихід; без funding, проскальзування і біржової черги виконання.",
     "Якщо стоп і ціль торкнуті в одній свічці, пріоритет має Stop Loss. Заповнення Limit за OHLC моделюється, не гарантоване.",
     "Просідання виражене сумою R при постійному ризику на угоду; це не просідання рахунку у відсотках.",
+    "Групи діагностики класифікують тільки виконані угоди за ознаками, відомими на момент сигналу, та не є новими торговими правилами.",
     "Дані обмежені доступною історією Bybit; тест не прогнозує результат майбутньої торгівлі.",
   ];
   const trades: ReplayTrade[] = [];
@@ -217,7 +229,8 @@ export function replayMultiTimeframeStrategy(
         (entry + exit) * feeRate;
       trades.push({ signalTime: time, entryTime: decisionBars[entryIndex].time,
         exitTime: candle.time, direction, entry, stop, target,
-        netR: Number((net / Math.abs(entry - stop)).toFixed(4)), result });
+        netR: Number((net / Math.abs(entry - stop)).toFixed(4)), result,
+        diagnostics: { ...setup.diagnostics, entryDelayBars: entryIndex - i - 1 } });
       i = j + 1;
       break;
     }
@@ -235,11 +248,22 @@ export function replayMultiTimeframeStrategy(
     { label: "Друга половина", from: midpoint, to: finish,
       ...summarizeTrades(trades.filter((trade) => trade.signalTime >= midpoint)) },
   ];
+  const cohorts = [
+    { label: "LONG", matches: (t: ReplayTrade) => t.direction === "LONG" },
+    { label: "SHORT", matches: (t: ReplayTrade) => t.direction === "SHORT" },
+    { label: "Вхід ≤ 1 ATR", matches: (t: ReplayTrade) => (t.diagnostics?.distanceAtr ?? Infinity) <= 1 },
+    { label: "Вхід > 1 ATR", matches: (t: ReplayTrade) => (t.diagnostics?.distanceAtr ?? -Infinity) > 1 },
+    { label: "Обсяг ≥ 1.2×", matches: (t: ReplayTrade) => (t.diagnostics?.relativeVolume ?? -Infinity) >= 1.2 },
+    { label: "Обсяг < 1.2×", matches: (t: ReplayTrade) => (t.diagnostics?.relativeVolume ?? Infinity) < 1.2 },
+    { label: "Сильний 4h тренд ≥ 1 ATR", matches: (t: ReplayTrade) => (t.diagnostics?.trendStrengthAtr ?? -Infinity) >= 1 },
+    { label: "Слабший 4h тренд < 1 ATR", matches: (t: ReplayTrade) => (t.diagnostics?.trendStrengthAtr ?? Infinity) < 1 },
+  ];
+  const diagnostics = cohorts.map(({ label, matches }) => ({ label, ...summarizeTrades(trades.filter(matches)) }));
   return { mode: "mtf-walk-forward", signals, unfilled, filled: count, wins,
     losses: count - wins, timeouts: trades.filter((t) => t.result === "TIMEOUT").length,
     winRate: count ? Number((wins / count * 100).toFixed(1)) : null,
     averageNetR: count ? Number((trades.reduce((v, t) => v + t.netR, 0) / count).toFixed(3)) : null,
     totalNetR: Number(trades.reduce((v, t) => v + t.netR, 0).toFixed(3)),
-    from: start, to: finish, maxDrawdownR: summary.maxDrawdownR, periods,
+    from: start, to: finish, maxDrawdownR: summary.maxDrawdownR, periods, diagnostics,
     trades, assumptions };
 }
