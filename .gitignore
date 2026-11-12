@@ -42,3 +42,6 @@ next-env.d.ts
 
 # Local backups
 .alpha-pulse-backups/
+
+# Immutable research candles (local only, never commit)
+.alpha-pulse-backtest-snapshots/
