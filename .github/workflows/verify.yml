@@ -17,6 +17,7 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
+      - run: node --experimental-strip-types --test test/*.test.mjs
       - run: npx tsc --noEmit
       - run: npx eslint .
       - run: npm run build
