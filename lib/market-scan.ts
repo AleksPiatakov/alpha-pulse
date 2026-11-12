@@ -2,6 +2,7 @@ import { DEMO_BYBIT_URL, roundPrice, type PlanDirection, type TradePlan } from "
 import { calculatePlanningLevels, assessPlanningLevels } from "./trade-planning-engine.ts";
 import { explainPlanLifecycle } from "./trade-plan-lifecycle.ts";
 import { closedMarketFeatures } from "./closed-market-features.ts";
+import { sealMarketInputSnapshot, type MarketInputSnapshot, type SnapshotTimeframes } from "./market-input-snapshot.ts";
 import { closedBarAt, observationMetadata, type MarketTimeframe } from "./market-observation-clock.ts";
 import { fetchLinearUniverse, matchUniverseTickers, type UniverseResult, type InstrumentMeta } from "./bybit-universe.ts";
 import { parseExecutionRules } from "./bybit-execution-rules.ts";
@@ -33,10 +34,12 @@ async function candlesFor(symbol: string, interval: Interval, observedAt: number
 }
 
 export type FilterReason = "candles" | "trend" | "volume" | "momentum" | "distance" | "prices" | "daily_level" | "reward_risk" | "error";
-async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null, meta?: InstrumentMeta, observedAt = Date.now()): Promise<TradePlan | null> {
+async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null, meta?: InstrumentMeta, observedAt = Date.now(), candleInput?: SnapshotTimeframes): Promise<TradePlan | null> {
   const rules = parseExecutionRules(meta);
   if (!rules) return reject("prices");
-  const [candles30, candles1h, candles4h, dailyCandles] = await Promise.all([candlesFor(ticker.symbol, "30", observedAt), candlesFor(ticker.symbol, "60", observedAt), candlesFor(ticker.symbol, "240", observedAt), candlesFor(ticker.symbol, "D", observedAt)]);
+  const [candles30, candles1h, candles4h, dailyCandles] = candleInput
+    ? [candleInput["30"], candleInput["60"], candleInput["240"], candleInput.D]
+    : await Promise.all([candlesFor(ticker.symbol, "30", observedAt), candlesFor(ticker.symbol, "60", observedAt), candlesFor(ticker.symbol, "240", observedAt), candlesFor(ticker.symbol, "D", observedAt)]);
   if (!candles30 || !candles1h || !candles4h || !dailyCandles) return reject("candles");
   const price = Number(ticker.lastPrice);
   const features = closedMarketFeatures(candles1h.map((bar) => ({
@@ -244,4 +247,38 @@ export async function verifyCurrentTechnicalPlan(symbol: string): Promise<TradeP
   if (info.retCode !== 0) return null;
   const meta = info.result?.list?.find((item) => item.symbol === symbol);
   return makePlan(ticker, () => null, meta, Date.now());
+}
+
+/**
+ * On-demand single-symbol research snapshot. Fetches no account/private data and
+ * does not place orders. The plan is computed from the EXACT sealed inputs.
+ */
+export async function captureAndEvaluateMarketSnapshot(symbol: string) {
+  if (!/^[A-Z0-9]{3,24}USDT$/.test(symbol)) throw new Error("Некоректний символ.");
+  const observedAt = Date.now();
+  const [tickerResponse, metadataResponse, m30, h1, h4, daily] = await Promise.all([
+    fetch(`${DEMO_BYBIT_URL}/v5/market/tickers?category=linear&symbol=${encodeURIComponent(symbol)}`,
+      {cache:"no-store", signal:AbortSignal.timeout(12000)}),
+    fetch(`${DEMO_BYBIT_URL}/v5/market/instruments-info?category=linear&symbol=${encodeURIComponent(symbol)}`,
+      {cache:"no-store", signal:AbortSignal.timeout(12000)}),
+    candlesFor(symbol, "30", observedAt), candlesFor(symbol, "60", observedAt),
+    candlesFor(symbol, "240", observedAt), candlesFor(symbol, "D", observedAt),
+  ]);
+  if (!tickerResponse.ok || !metadataResponse.ok || !m30 || !h1 || !h4 || !daily)
+    throw new Error("Не вдалося отримати повний набір ринкових даних Bybit Demo.");
+  const tickerData = await tickerResponse.json() as {retCode?:number;result?:{list?:Ticker[]}};
+  const metaData = await metadataResponse.json() as {retCode?:number;result?:{list?:InstrumentMeta[]}};
+  const ticker = tickerData.retCode === 0 ? tickerData.result?.list?.find(x=>x.symbol===symbol) : undefined;
+  const instrument = metaData.retCode === 0 ? metaData.result?.list?.find(x=>x.symbol===symbol) : undefined;
+  if (!ticker || !instrument) throw new Error("Немає актуального тикера або параметрів контракту.");
+  const snapshot: MarketInputSnapshot = {
+    schema: "alpha-pulse-market-input-v1", source: "bybit-demo", observedAt, symbol,
+    ticker, instrument, candles: {"30":m30,"60":h1,"240":h4,D:daily},
+  };
+  const sealed = sealMarketInputSnapshot(snapshot);
+  const plan = await makePlan(ticker, ()=>null, instrument, observedAt, snapshot.candles);
+  const repeated = await makePlan(ticker, ()=>null, instrument, observedAt, snapshot.candles);
+  if (JSON.stringify(plan) !== JSON.stringify(repeated))
+    throw new Error("Невідтворюваний результат плану на одному знімку.");
+  return {...sealed, plan, deterministic: true, orderEnabled: false as const};
 }
