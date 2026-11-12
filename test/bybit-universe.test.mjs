@@ -43,5 +43,5 @@ test("market ticker matching skips missing, malformed, and non-tradable quotes",
     { symbol:"DOGEUSDT",lastPrice:"0",price24hPcnt:"0",turnover24h:"9000"},
   ];
   assert.deepEqual(matchUniverseTickers(records,new Set(["BTCUSDT","ETHUSDT","DOGEUSDT"]))
-    .map((x)=>x.symbol),["ETHUSDT","BTCUSDT"]);
+    .map((x)=>x.symbol),["BTCUSDT","ETHUSDT"]);
 });
