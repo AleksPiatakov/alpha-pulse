@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  emaValues, emaBars, atrBars, trendBars, isCompletedBar, roundPlanPrice, roundedPlanLevels, nearestSwingLevel,
+  emaValues, emaBars, atrBars, trendBars, isCompletedBar, roundPlanPrice, roundToTick, roundedPlanLevels, nearestSwingLevel,
   nearestAcrossTimeframes, stopFromAtr, structuralTarget, rewardRisk,
 } from "../lib/technical-plan-core.ts";
 
@@ -75,4 +75,19 @@ test("scanner and historical replay round levels identically before R:R", () => 
   });
   assert.equal(roundedPlanLevels("LONG", 100, 100.00001, 102), null);
   assert.equal(roundedPlanLevels("SHORT", 100, 101, 98)?.rr, 2);
+});
+
+test("Bybit tick size handles distinct BTC and low-priced coin increments", () => {
+  assert.equal(roundToTick(73648.93, 0.1), 73648.9);
+  assert.equal(roundToTick(0.1234567, 0.0001), 0.1235);
+  assert.equal(roundToTick(0.1234567, 0.00001), 0.12346);
+  assert.ok(Number.isNaN(roundToTick(1, 0)));
+  assert.ok(Number.isNaN(roundToTick(1, NaN)));
+});
+
+test("exchange tick precision is opt-in to the simulation; invalid rounded risk is rejected", () => {
+  const rounded = roundedPlanLevels("LONG", 1.23456, 1.22456, 1.26456, 0.0001);
+  assert.deepEqual(rounded, { entry: 1.2346, stop: 1.2246, target: 1.2646, rr: (1.2646 - 1.2346) / (1.2346 - 1.2246) });
+  assert.equal(roundedPlanLevels("LONG", 100.01, 100.005, 102, 0.1), null);
+  assert.equal(roundedPlanLevels("SHORT", 100.01, 100.005, 98, 0.1), null);
 });
