@@ -1,6 +1,7 @@
 import { DEMO_BYBIT_URL, roundPrice, type PlanDirection, type TradePlan } from "@/lib/trading";
 import { calculatePlanningLevels, assessPlanningLevels } from "./trade-planning-engine.ts";
 import { explainPlanLifecycle } from "./trade-plan-lifecycle.ts";
+import { closedMarketFeatures } from "./closed-market-features.ts";
 import { closedBarAt, observationMetadata, type MarketTimeframe } from "./market-observation-clock.ts";
 import { fetchLinearUniverse, matchUniverseTickers, type UniverseResult, type InstrumentMeta } from "./bybit-universe.ts";
 import { parseExecutionRules } from "./bybit-execution-rules.ts";
@@ -8,7 +9,7 @@ import { roundToTick } from "./technical-plan-core.ts";
 import { emaValues as ema, atrBars, trendBars, nearestSwingLevel, type PriceBar } from "./technical-plan-core.ts";
 
 type Ticker = { symbol: string; lastPrice: string; price24hPcnt: string; turnover24h: string };
-type Candle = [string, string, string, string, string, string];
+type Candle = [string, string, string, string, string, string, string];
 type Interval = MarketTimeframe;
 
 function asBars(candles: Candle[]): PriceBar[] {
@@ -27,7 +28,7 @@ async function candlesFor(symbol: string, interval: Interval, observedAt: number
   if (data.retCode !== 0 || !data.result?.list) return null;
   const closed = [...data.result.list].reverse().filter((c) =>
     closedBarAt(Number(c[0]), interval, observedAt) &&
-    [c[2], c[3], c[4], c[5]].every((n) => Number.isFinite(Number(n))));
+    [c[2], c[3], c[4], c[5], c[6]].every((n) => n !== undefined && Number.isFinite(Number(n))));
   return closed.length >= 60 ? closed : null;
 }
 
@@ -37,14 +38,17 @@ async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null, 
   if (!rules) return reject("prices");
   const [candles30, candles1h, candles4h, dailyCandles] = await Promise.all([candlesFor(ticker.symbol, "30", observedAt), candlesFor(ticker.symbol, "60", observedAt), candlesFor(ticker.symbol, "240", observedAt), candlesFor(ticker.symbol, "D", observedAt)]);
   if (!candles30 || !candles1h || !candles4h || !dailyCandles) return reject("candles");
-  const price = Number(ticker.lastPrice), change = Number(ticker.price24hPcnt);
+  const price = Number(ticker.lastPrice);
+  const features = closedMarketFeatures(candles1h.map((bar) => ({
+    close: Number(bar[4]), volume: Number(bar[5]), turnover: Number(bar[6]),
+  })));
+  if (!features) return reject("volume");
+  const change = features.change24h;
   const direction4h = trend(candles4h), direction1h = trend(candles1h), direction30m = trend(candles30);
   if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(change)) return reject("prices");
   const direction: PlanDirection = direction4h ?? direction1h ?? direction30m ?? (change >= 0 ? "LONG" : "SHORT");
   const volatility1h = atr(candles1h), volatility30m = atr(candles30);
-  const averageVolume = candles1h.slice(-31, -1).reduce((sum, candle) => sum + Number(candle[5]), 0) / 30;
-  if (averageVolume <= 0) return reject("volume");
-  const relativeVolume = Number(candles1h.at(-1)?.[5] ?? 0) / averageVolume;
+  const relativeVolume = features.relativeVolume1h;
   const entryEma30m = ema(candles30.map((candle) => Number(candle[4])), 20);
   if (!Number.isFinite(volatility1h) || volatility1h <= 0 || !Number.isFinite(volatility30m) || volatility30m <= 0 || !Number.isFinite(relativeVolume)) return reject("volume");
   const pivotLevels = [candles30, candles1h, candles4h, dailyCandles]
@@ -71,7 +75,7 @@ async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null, 
     direction, levels, atr30m: volatility30m, tickSize: rules.tickSize,
     quality: {
       direction4h, direction1h, direction30m, relativeVolume,
-      change24h: change, turnover24h: Number(ticker.turnover24h),
+      change24h: change, turnover24h: features.turnover24h,
       pivot1h: h1Pivot !== null, pivot4h: h4Pivot !== null, pivotDaily: dPivot !== null,
     },
   });
@@ -96,7 +100,8 @@ async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null, 
     riskReward: Number(actualRR.toFixed(2)),
     expiresAt: new Date(observedAt + 2 * 60 * 60 * 1000).toISOString(),
     observation: observationMetadata(observedAt),
-    reasons: [`4h EMA: ${direction4h ?? "без напрямку"}`, `1h EMA: ${direction1h ?? "без напрямку"}`, `30m EMA: ${direction30m ?? "без напрямку"}`, hasDailyTarget ? `TP обмежено денним swing-рівнем` : `Ціль попередня: денний рівень не підтверджений`, `24h імпульс ${(change * 100).toFixed(2)}% · закритий 1h обсяг ${relativeVolume.toFixed(1)}× · до входу ${entryDistanceAtr.toFixed(2)} ATR`, ...quality.checks],
+    featureSource: features.source,
+    reasons: [`4h EMA: ${direction4h ?? "без напрямку"}`, `1h EMA: ${direction1h ?? "без напрямку"}`, `30m EMA: ${direction30m ?? "без напрямку"}`, hasDailyTarget ? `TP обмежено денним swing-рівнем` : `Ціль попередня: денний рівень не підтверджений`, `24h імпульс закритих свічок ${(change * 100).toFixed(2)}% · 24h оборот закритих свічок ${features.turnover24h.toFixed(0)} USDT · 1h обсяг ${relativeVolume.toFixed(1)}× · до входу ${entryDistanceAtr.toFixed(2)} ATR`, ...quality.checks],
     summary: `${quality.status === "ACTIVE" ? "Технічні умови узгоджені" : "Сценарій спостереження"} ${direction}. Очікується Limit-рівень ${entryPrice}.`,
     caution,
     nextStep: quality.status === "ACTIVE" ? "Перевірте актуальний план і ризик перед Demo-заявкою." : "Дочекайтеся додаткового підтвердження або випробуйте сценарій у Demo.",
