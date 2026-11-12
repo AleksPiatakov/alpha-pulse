@@ -1,14 +1,15 @@
 import { DEMO_BYBIT_URL, roundPrice, type PlanDirection, type TradePlan } from "@/lib/trading";
 import { calculatePlanningLevels, assessPlanningLevels } from "./trade-planning-engine.ts";
 import { explainPlanLifecycle } from "./trade-plan-lifecycle.ts";
+import { closedBarAt, observationMetadata, type MarketTimeframe } from "./market-observation-clock.ts";
 import { fetchLinearUniverse, matchUniverseTickers, type UniverseResult, type InstrumentMeta } from "./bybit-universe.ts";
 import { parseExecutionRules } from "./bybit-execution-rules.ts";
 import { roundToTick } from "./technical-plan-core.ts";
-import { emaValues as ema, atrBars, trendBars, nearestSwingLevel, isCompletedBar, type PriceBar } from "./technical-plan-core.ts";
+import { emaValues as ema, atrBars, trendBars, nearestSwingLevel, type PriceBar } from "./technical-plan-core.ts";
 
 type Ticker = { symbol: string; lastPrice: string; price24hPcnt: string; turnover24h: string };
 type Candle = [string, string, string, string, string, string];
-type Interval = "30" | "60" | "240" | "D";
+type Interval = MarketTimeframe;
 
 function asBars(candles: Candle[]): PriceBar[] {
   return candles.map((bar) => ({ high: Number(bar[2]), low: Number(bar[3]), close: Number(bar[4]) }));
@@ -19,23 +20,22 @@ function nearestConfirmedLevel(candles: Candle[], direction: PlanDirection, pric
   return nearestSwingLevel(asBars(candles), direction, price);
 }
 
-async function candlesFor(symbol: string, interval: Interval) {
+async function candlesFor(symbol: string, interval: Interval, observedAt: number) {
   const limit = 200;
   const response = await fetch(`${DEMO_BYBIT_URL}/v5/market/kline?category=linear&symbol=${symbol}&interval=${interval}&limit=${limit}`, { cache: "no-store" });
   const data = await response.json() as { retCode: number; result?: { list?: Candle[] } };
   if (data.retCode !== 0 || !data.result?.list) return null;
-  const intervalMs = interval === "D" ? 86_400_000 : Number(interval) * 60_000;
   const closed = [...data.result.list].reverse().filter((c) =>
-    isCompletedBar(Number(c[0]), intervalMs, Date.now()) &&
+    closedBarAt(Number(c[0]), interval, observedAt) &&
     [c[2], c[3], c[4], c[5]].every((n) => Number.isFinite(Number(n))));
   return closed.length >= 60 ? closed : null;
 }
 
 export type FilterReason = "candles" | "trend" | "volume" | "momentum" | "distance" | "prices" | "daily_level" | "reward_risk" | "error";
-async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null, meta?: InstrumentMeta): Promise<TradePlan | null> {
+async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null, meta?: InstrumentMeta, observedAt = Date.now()): Promise<TradePlan | null> {
   const rules = parseExecutionRules(meta);
   if (!rules) return reject("prices");
-  const [candles30, candles1h, candles4h, dailyCandles] = await Promise.all([candlesFor(ticker.symbol, "30"), candlesFor(ticker.symbol, "60"), candlesFor(ticker.symbol, "240"), candlesFor(ticker.symbol, "D")]);
+  const [candles30, candles1h, candles4h, dailyCandles] = await Promise.all([candlesFor(ticker.symbol, "30", observedAt), candlesFor(ticker.symbol, "60", observedAt), candlesFor(ticker.symbol, "240", observedAt), candlesFor(ticker.symbol, "D", observedAt)]);
   if (!candles30 || !candles1h || !candles4h || !dailyCandles) return reject("candles");
   const price = Number(ticker.lastPrice), change = Number(ticker.price24hPcnt);
   const direction4h = trend(candles4h), direction1h = trend(candles1h), direction30m = trend(candles30);
@@ -94,7 +94,8 @@ async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null, 
     takeProfit1: roundedTarget,
     takeProfit2: roundedTarget,
     riskReward: Number(actualRR.toFixed(2)),
-    expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+    expiresAt: new Date(observedAt + 2 * 60 * 60 * 1000).toISOString(),
+    observation: observationMetadata(observedAt),
     reasons: [`4h EMA: ${direction4h ?? "без напрямку"}`, `1h EMA: ${direction1h ?? "без напрямку"}`, `30m EMA: ${direction30m ?? "без напрямку"}`, hasDailyTarget ? `TP обмежено денним swing-рівнем` : `Ціль попередня: денний рівень не підтверджений`, `24h імпульс ${(change * 100).toFixed(2)}% · закритий 1h обсяг ${relativeVolume.toFixed(1)}× · до входу ${entryDistanceAtr.toFixed(2)} ATR`, ...quality.checks],
     summary: `${quality.status === "ACTIVE" ? "Технічні умови узгоджені" : "Сценарій спостереження"} ${direction}. Очікується Limit-рівень ${entryPrice}.`,
     caution,
@@ -139,6 +140,7 @@ export type ScanResult = {
 };
 
 async function doScan(): Promise<ScanResult> {
+  const observedAt = Date.now();
   const [registry, response] = await Promise.all([currentUniverse(), fetch(`${DEMO_BYBIT_URL}/v5/market/tickers?category=linear`, {
     cache: "no-store", signal: AbortSignal.timeout(12000),
   })]);
@@ -170,7 +172,7 @@ async function doScan(): Promise<ScanResult> {
       const ticker = batch[current];
       try {
         results[current] = { status: "fulfilled",
-          value: await makePlan(ticker, (reason) => { rejectionCounts[reason]++; return null; }, metadataBySymbol.get(ticker.symbol)) };
+          value: await makePlan(ticker, (reason) => { rejectionCounts[reason]++; return null; }, metadataBySymbol.get(ticker.symbol), observedAt) };
       } catch (reason) {
         results[current] = { status: "rejected", reason };
       }
@@ -236,5 +238,5 @@ export async function verifyCurrentTechnicalPlan(symbol: string): Promise<TradeP
   const info = await response.json() as { retCode?: number; result?: { list?: InstrumentMeta[] } };
   if (info.retCode !== 0) return null;
   const meta = info.result?.list?.find((item) => item.symbol === symbol);
-  return makePlan(ticker, () => null, meta);
+  return makePlan(ticker, () => null, meta, Date.now());
 }
