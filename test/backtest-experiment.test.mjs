@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { passesExperimentFilter, REPLAY_VARIANTS } from "../lib/mtf-backtest.ts";
 
-test("hypotheses are a fixed preregistered set, not selected by outcomes", () => {
-  assert.deepEqual(REPLAY_VARIANTS.map((variant) => variant.key), [
+test("original four baseline hypotheses remain unchanged; quality candidate added explicitly", () => {
+  assert.deepEqual(REPLAY_VARIANTS.slice(0, 4).map((variant) => variant.key), [
     "baseline", "near-entry", "moderate-trend", "lower-volume",
   ]);
+  assert.equal(REPLAY_VARIANTS[4]?.key, "intraday-quality");
 });
 
 test("near-entry gate rejects an entry more than 1 ATR away", () => {
@@ -23,7 +24,7 @@ test("moderate trend and volume gates only use decision-time features", () => {
   assert.equal(passesExperimentFilter("lower-volume", { ...features, relativeVolume: 1.19 }), true);
 });
 
-test("invalid feature values fail closed for all four variants", () => {
+test("invalid feature values fail closed for every research variant", () => {
   for (const variant of REPLAY_VARIANTS) {
     assert.equal(passesExperimentFilter(variant.key, {
       distanceAtr: Number.NaN, trendStrengthAtr: 0.7, relativeVolume: 1,
