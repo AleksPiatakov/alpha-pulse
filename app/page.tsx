@@ -15,6 +15,13 @@ const rejectionLabels: Array<[keyof RejectionCounts, string]> = [
   ["error", "Помилка отримання даних"],
 ];
 const price = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 6 })}`;
+const isInEntryZone = (plan: TradePlan) =>
+  Number.isFinite(plan.currentPrice) &&
+  Number.isFinite(plan.entryLow) &&
+  Number.isFinite(plan.entryHigh) &&
+  plan.currentPrice >= Math.min(plan.entryLow, plan.entryHigh) &&
+  plan.currentPrice <= Math.max(plan.entryLow, plan.entryHigh);
+
 const rankStyles = [
   { label: "Top 1", border: "border-emerald-400/80 shadow-emerald-500/10", badge: "bg-emerald-400 text-slate-950", accent: "text-emerald-300" },
   { label: "Top 2", border: "border-cyan-400/60", badge: "bg-cyan-400 text-slate-950", accent: "text-cyan-300" },
@@ -29,6 +36,7 @@ export default function MarketScanner() {
   const [rejectionCounts, setRejectionCounts] = useState<RejectionCounts>();
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(true);
+  const [showWaiting, setShowWaiting] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -47,6 +55,10 @@ export default function MarketScanner() {
     const interval = window.setInterval(() => void refresh(), 30_000);
     return () => { window.clearTimeout(initial); window.clearInterval(interval); };
   }, [refresh]);
+
+  const featuredPlans = plans.filter((plan) => plan.status === "ACTIVE" || isInEntryZone(plan));
+  const waitingPlans = plans.filter((plan) => plan.status !== "ACTIVE" && !isInEntryZone(plan));
+  const displayedPlans = showWaiting ? [...featuredPlans, ...waitingPlans] : featuredPlans;
 
   const openPlan = (plan: TradePlan) => {
     localStorage.setItem("alpha-pulse-plan-v1", JSON.stringify(plan));
@@ -67,13 +79,13 @@ export default function MarketScanner() {
           <span>Bybit linear <strong className="font-semibold text-slate-200">{counts.scanned}</strong></span>
           <span>Доступних <strong className="font-semibold text-slate-200">{counts.eligible}</strong></span>
           <span>Перевірено <strong className="font-semibold text-slate-200">{counts.covered}/{counts.eligible}</strong></span>
-          <span>Сценарії <strong className="font-semibold text-emerald-300">{plans.length}</strong></span>
+          <span>Видимих <strong className="font-semibold text-emerald-300">{featuredPlans.length}</strong></span>
           <span>Оновлено <strong className="font-semibold tabular-nums text-slate-200">{updatedAt ? new Date(updatedAt).toLocaleTimeString() : "—"}</strong></span>
         </div>
       </div>
-      {plans.length === 0 && <section className="rounded-xl border border-slate-800 bg-slate-900/60 px-5 py-6 text-sm text-slate-300">
-        <p className="font-semibold text-slate-100">Поки не знайдено сценаріїв у перевіреній частині ринку.</p>
-        <p className="mt-1 text-slate-400">Перевірка решти інструментів триває під час оновлень, доки працює сервер і відкрита сторінка.</p>
+      {featuredPlans.length === 0 && <section className="rounded-xl border border-slate-800 bg-slate-900/60 px-5 py-6 text-sm text-slate-300">
+        <p className="font-semibold text-slate-100">Поки немає підтверджених сценаріїв або ціни в зоні входу.</p>
+        <p className="mt-1 text-slate-400">Інші сценарії можна переглянути нижче. Перевірка ринку продовжується під час оновлень.</p>
         {rejectionCounts && <details className="mt-3 text-xs"><summary className="cursor-pointer text-slate-400">Чому пари не пройшли відбір</summary>
           <div className="mt-2 flex flex-wrap gap-x-5 gap-y-2">
             {rejectionLabels.filter(([key]) => rejectionCounts[key] > 0).map(([key, label]) =>
@@ -81,14 +93,21 @@ export default function MarketScanner() {
           </div>
         </details>}
       </section>}
+      {waitingPlans.length > 0 && <button type="button"
+        aria-expanded={showWaiting}
+        onClick={() => setShowWaiting((open) => !open)}
+        className="mb-4 flex items-center gap-2 rounded-lg border border-slate-800 px-3 py-2 text-xs font-semibold text-slate-300 hover:border-slate-600 hover:text-slate-100">
+        <span aria-hidden="true">{showWaiting ? "▾" : "▸"}</span>
+        Очікування ({waitingPlans.length}) · {showWaiting ? "Згорнути" : "Показати"}
+      </button>}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {plans.map((plan, index) => {
+        {displayedPlans.map((plan, index) => {
           const rank = rankStyles[index];
           const isLong = plan.direction === "LONG";
           return <article key={plan.id} className={`rounded-xl border bg-slate-900 p-4 shadow-lg ${rank?.border ?? "border-slate-700"}`}>
             <div className="mb-3 flex items-start justify-between gap-3">
               <div className="flex items-center gap-2">
-                <span className={`rounded-md px-2 py-1 text-[10px] font-black uppercase tracking-wide ${rank?.badge ?? "bg-slate-700 text-slate-200"}`}>{rank?.label ?? `Top ${index + 1}`}</span><span className={`rounded px-2 py-1 text-[10px] font-semibold ${plan.status === "ACTIVE" ? "bg-emerald-950 text-emerald-200" : "bg-amber-950 text-amber-200"}`}>{plan.status === "ACTIVE" ? "Підтверджено" : "Очікування"}</span>
+                <span className={`rounded-md px-2 py-1 text-[10px] font-black uppercase tracking-wide ${rank?.badge ?? "bg-slate-700 text-slate-200"}`}>{rank?.label ?? `Top ${index + 1}`}</span><span className={`rounded px-2 py-1 text-[10px] font-semibold ${plan.status === "ACTIVE" ? "bg-emerald-950 text-emerald-200" : "bg-amber-950 text-amber-200"}`}>{isInEntryZone(plan) ? "У зоні входу" : plan.status === "ACTIVE" ? "Підтверджено" : "Очікування"}</span>
                 <h3 className="text-lg font-black">{plan.symbol}</h3>
               </div>
               <span className={`rounded-full px-2 py-1 text-xs font-bold ${isLong ? "bg-emerald-950 text-emerald-300" : "bg-rose-950 text-rose-300"}`}>{plan.direction}</span>
