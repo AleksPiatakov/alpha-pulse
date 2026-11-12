@@ -4,38 +4,61 @@ type Ticker = { symbol: string; lastPrice: string; price24hPcnt: string; turnove
 type Candle = [string, string, string, string, string, string];
 type Interval = "30" | "60" | "240" | "D";
 
-const ema = (values: number[], period: number) => values.slice(1).reduce((result, value) => value * (2 / (period + 1)) + result * (1 - 2 / (period + 1)), values[0]);
+function ema(values: number[], period: number) {
+  if (values.length < period) return NaN;
+  const alpha = 2 / (period + 1);
+  let average = values.slice(0, period).reduce((sum, n) => sum + n, 0) / period;
+  for (const price of values.slice(period)) average += alpha * (price - average);
+  return average;
+}
 const directionLabel = (direction: PlanDirection) => direction === "LONG" ? "вище" : "нижче";
 
 function atr(candles: Candle[]) {
-  const ranges = candles.slice(-15).map((candle, index, values) => {
-    const high = Number(candle[2]), low = Number(candle[3]), previous = index === 0 ? Number(candle[4]) : Number(values[index - 1][4]);
+  const recent = candles.slice(-15);
+  if (recent.length !== 15) return NaN;
+  const ranges = recent.slice(1).map((bar, i) => {
+    const high = Number(bar[2]), low = Number(bar[3]), previous = Number(recent[i][4]);
     return Math.max(high - low, Math.abs(high - previous), Math.abs(low - previous));
   });
-  return ranges.reduce((sum, value) => sum + value, 0) / ranges.length;
+  return ranges.reduce((sum, n) => sum + n, 0) / ranges.length;
 }
 
 function trend(candles: Candle[], marketPrice: number): PlanDirection | null {
   const closes = candles.map((candle) => Number(candle[4]));
-  const fast = ema(closes.slice(-25), 20), slow = ema(closes, 50);
+  const fast = ema(closes, 20), slow = ema(closes, 50);
   if (marketPrice > fast && fast > slow) return "LONG";
   if (marketPrice < fast && fast < slow) return "SHORT";
   return null;
 }
 
-function structuralTarget(direction: PlanDirection, fallback: number, dailyCandles: Candle[]) {
-  const lows = dailyCandles.map((candle) => Number(candle[3]));
-  const highs = dailyCandles.map((candle) => Number(candle[2]));
-  // Never project a first extension through the 200-day extreme without a confirmed breakout.
-  return direction === "SHORT" ? Math.max(fallback, Math.min(...lows) * 1.003) : Math.min(fallback, Math.max(...highs) * .997);
+function structuralTarget(direction: PlanDirection, entry: number, stopLoss: number, daily: Candle[]) {
+  const distance = Math.abs(entry - stopLoss);
+  const ideal = direction === "LONG" ? entry + 2.4 * distance : entry - 2.4 * distance;
+  const candidates: number[] = [];
+  // A daily swing pivot requires two completed candles to the left and right.
+  for (let i = 2; i < daily.length - 2; i++) {
+    const middle = Number(daily[i][direction === "LONG" ? 2 : 3]);
+    const others = [i - 2, i - 1, i + 1, i + 2].map((j) => Number(daily[j][direction === "LONG" ? 2 : 3]));
+    const confirmed = direction === "LONG" ? others.every((value) => middle > value) : others.every((value) => middle < value);
+    if (confirmed && (direction === "LONG" ? middle > entry : middle < entry)) candidates.push(middle);
+  }
+  // No confirmed obstacle: do not claim that the whole route is clear.
+  if (!candidates.length) return null;
+  const nearest = direction === "LONG" ? Math.min(...candidates) : Math.max(...candidates);
+  const buffered = nearest + (direction === "LONG" ? -0.05 : 0.05) * distance;
+  return direction === "LONG" ? Math.min(ideal, buffered) : Math.max(ideal, buffered);
 }
 
 async function candlesFor(symbol: string, interval: Interval) {
-  const limit = interval === "D" ? 200 : 60;
+  const limit = 200;
   const response = await fetch(`${DEMO_BYBIT_URL}/v5/market/kline?category=linear&symbol=${symbol}&interval=${interval}&limit=${limit}`, { cache: "no-store" });
   const data = await response.json() as { retCode: number; result?: { list?: Candle[] } };
-  const candles = data.result?.list?.reverse();
-  return data.retCode === 0 && candles && candles.length >= 50 ? candles : null;
+  if (data.retCode !== 0 || !data.result?.list) return null;
+  const intervalMs = interval === "D" ? 86_400_000 : Number(interval) * 60_000;
+  const closed = [...data.result.list].reverse().filter((c) =>
+    Number(c[0]) + intervalMs <= Date.now() &&
+    [c[2], c[3], c[4], c[5]].every((n) => Number.isFinite(Number(n))));
+  return closed.length >= 60 ? closed : null;
 }
 
 async function makePlan(ticker: Ticker): Promise<TradePlan | null> {
@@ -48,15 +71,19 @@ async function makePlan(ticker: Ticker): Promise<TradePlan | null> {
   const volatility1h = atr(candles1h), volatility30m = atr(candles30);
   const averageVolume = candles1h.slice(-31, -1).reduce((sum, candle) => sum + Number(candle[5]), 0) / 30;
   const relativeVolume = Number(candles1h.at(-1)?.[5] ?? 0) / averageVolume;
-  const entryEma30m = ema(candles30.map((candle) => Number(candle[4])).slice(-25), 20);
-  if (!Number.isFinite(volatility1h) || volatility1h <= 0 || !Number.isFinite(volatility30m) || volatility30m <= 0 || !Number.isFinite(relativeVolume)) return null;
+  const entryEma30m = ema(candles30.map((candle) => Number(candle[4])), 20);
+  if (!Number.isFinite(volatility1h) || volatility1h <= 0 || !Number.isFinite(volatility30m) || volatility30m <= 0 || !Number.isFinite(relativeVolume) || relativeVolume < 0.65) return null;
   if ((direction === "LONG" && change <= .003) || (direction === "SHORT" && change >= -.003)) return null;
   const entry = direction === "LONG" ? Math.min(entryEma30m, price - volatility30m * .25) : Math.max(entryEma30m, price + volatility30m * .25);
+  const entryDistanceAtr = Math.abs(price - entry) / volatility30m;
+  if (!Number.isFinite(entryDistanceAtr) || entryDistanceAtr > 2.5) return null;
   const zoneHalfWidth = volatility30m * .45;
   const risk = Math.max(volatility1h * 1.25, volatility30m * 2);
   const stopLoss = direction === "LONG" ? entry - risk : entry + risk;
   const rawTakeProfit2 = direction === "LONG" ? entry + risk * 2.4 : entry - risk * 2.4;
-  const takeProfit2 = structuralTarget(direction, rawTakeProfit2, dailyCandles);
+  const structural = structuralTarget(direction, entry, stopLoss, dailyCandles);
+  if (structural === null) return null;
+  const takeProfit2 = direction === "LONG" ? Math.min(rawTakeProfit2, structural) : Math.max(rawTakeProfit2, structural);
   const entryPrice = roundPrice(entry);
   const roundedStop = roundPrice(stopLoss);
   const roundedTarget = roundPrice(takeProfit2);
@@ -70,7 +97,8 @@ async function makePlan(ticker: Ticker): Promise<TradePlan | null> {
   const momentumPoints = Math.min(Math.abs(change) * 400, 12);
   const volumePoints = Math.min(Math.max(relativeVolume - 0.5, 0) * 8, 10);
   const rewardRiskPoints = Math.min(Math.max((actualRR - 1.5) / 0.9, 0) * 20, 20);
-  const score = Math.min(95, Math.round(53 + momentumPoints + volumePoints + rewardRiskPoints));
+  const proximityPoints = 12 * Math.max(0, 1 - entryDistanceAtr / 2.5);
+  const score = Math.min(95, Math.round(41 + momentumPoints + volumePoints + rewardRiskPoints + proximityPoints));
   const caution = relativeVolume >= 1.2 ? "Усі три таймфрейми узгоджені, але Limit-зона може не бути протестована." : "Напрямок узгоджений, але обсяг слабкий: не ставте заявку без повторної автооцінки.";
   return {
     id: `${ticker.symbol}-${direction}-${Math.round(entry * 1e6)}`,
@@ -86,7 +114,7 @@ async function makePlan(ticker: Ticker): Promise<TradePlan | null> {
     takeProfit2: roundedTarget,
     riskReward: Number(actualRR.toFixed(2)),
     expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
-    reasons: [`4h тренд: ціна ${directionLabel(direction)} EMA20 і EMA50`, `1h структура: ціна ${directionLabel(direction)} EMA20 і EMA50`, `30m підтвердження входу: ${direction}`, `Take-profit обмежено 1D підтримкою/опором`, `24h імпульс ${(change * 100).toFixed(2)}% · обсяг ${relativeVolume.toFixed(1)}×`],
+    reasons: [`4h тренд: ціна ${directionLabel(direction)} EMA20 і EMA50`, `1h структура: ціна ${directionLabel(direction)} EMA20 і EMA50`, `30m підтвердження входу: ${direction}`, `Take-profit обмежено найближчим підтвердженим 1D swing-рівнем`, `24h імпульс ${(change * 100).toFixed(2)}% · закритий 1h обсяг ${relativeVolume.toFixed(1)}× · до входу ${entryDistanceAtr.toFixed(2)} ATR`],
     summary: `4h, 1h і 30m узгоджені для ${direction}. Limit-вхід очікує повернення ціни до ${entryPrice}.`,
     caution,
     nextStep: "Дочекайтеся Limit-зони; автоаналіз скасує рекомендацію, якщо таймфрейми розійдуться.",
@@ -103,7 +131,10 @@ export async function scanTechnicalPlans() {
   if (data.retCode !== 0 || !data.result?.list) throw new Error(data.retMsg || "Не вдалося отримати ринок Bybit.");
   const eligible = data.result.list.filter((ticker) => ticker.symbol.endsWith("USDT") && Number(ticker.turnover24h) >= 20_000_000);
   const analyzed = eligible.sort((a, b) => Number(b.turnover24h) - Number(a.turnover24h)).slice(0, 18);
-  const plans = (await Promise.all(analyzed.map(makePlan))).filter((plan): plan is TradePlan => plan !== null).sort((a, b) => b.score - a.score).slice(0, 6);
+  const results = await Promise.allSettled(analyzed.map(makePlan));
+  const plans = results.flatMap((r) => r.status === "fulfilled" && r.value ? [r.value] : [])
+    .sort((a, b) => b.score - a.score || b.riskReward - a.riskReward || a.symbol.localeCompare(b.symbol))
+    .slice(0, 6);
   return { plans, scanned: data.result.list.length, eligible: eligible.length, analyzed: analyzed.length };
 }
 
