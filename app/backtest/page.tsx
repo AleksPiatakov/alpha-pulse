@@ -24,7 +24,13 @@ type VariantStats = {
   totalNetR: number; averageNetR: number | null; winRate: number | null;
   maxDrawdownR: number; periods: PeriodStats[]; trades?: unknown[];
 };
-type ExperimentResult = TestResult & { experiments?: VariantStats[]; conservativeExperiments?: VariantStats[] };
+type FactorResult = { key: string; label: string; signals: number; unfilled: number;
+  filled: number; totalNetR: number; averageNetR: number | null; winRate: number | null;
+  maxDrawdownR: number; trades: unknown[]; assumptions: string[] };
+type ExperimentResult = TestResult & {
+  experiments?: VariantStats[]; conservativeExperiments?: VariantStats[];
+  executionAttribution?: FactorResult[];
+};
 type ResultMap = Partial<Record<SymbolName, TestResult>>;
 
 const number = (value: number | null | undefined, digits = 2) =>
@@ -53,7 +59,7 @@ export default function BacktestComparisonPage() {
     // Only public-market research results. No account data, credentials or API keys.
     const payload = {
       kind: "alpha-pulse-backtest",
-      version: 4,
+      version: 5,
       exportedAt: new Date().toISOString(),
       symbols: [...SYMBOLS],
       timeframe: ["30m", "1h", "4h", "1D"],
@@ -67,6 +73,7 @@ export default function BacktestComparisonPage() {
       results: Object.fromEntries(SYMBOLS.map((symbol) => [symbol, results[symbol] ?? null])),
       experiments: Object.fromEntries(SYMBOLS.map((symbol) => [symbol, experimentResults[symbol]?.experiments ?? null])),
       conservativeExperiments: Object.fromEntries(SYMBOLS.map((symbol) => [symbol, experimentResults[symbol]?.conservativeExperiments ?? null])),
+      executionAttribution: Object.fromEntries(SYMBOLS.map((symbol) => [symbol, experimentResults[symbol]?.executionAttribution ?? null])),
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -138,7 +145,7 @@ export default function BacktestComparisonPage() {
       <p className="mb-5 text-xs text-slate-400">
         8 пар Bybit · 30m / 1h / 4h / 1D · кінець історії: 12.11.2026, 00:00 UTC · округлення за tickSize.
         Результати — історична модель, не прогноз прибутку. Кожна пара перевіряється окремо.
-        Перший запуск зберігає свічки локально; наступні запуски використовують ті самі файли. Тепер обчислюються базові та консервативні результати (1 tick проникнення, 0,075% комісії на бік, проскальзування Stop Loss 10 bps). Повні журнали обох моделей включено в JSON. Це дослідницька вибірка, не незалежний holdout.
+        Перший запуск зберігає свічки локально; наступні запуски використовують ті самі файли. Тепер кожен фактор стрес-тесту перевіряється окремо, а також усі фактори разом (1 tick проникнення, 0,075% комісії на бік, проскальзування Stop Loss 10 bps). Повні журнали обох моделей включено в JSON. Це дослідницька вибірка, не незалежний holdout.
       </p>
       <p className="mb-3 text-xs text-amber-200">Важливо: історичний тест використовує ціну закриття 30m, а робочий сканер — поточний тікер; 24h показники й спосіб округлення у сканері відрізняються. TickSize з Bybit застосовано лише в дослідницькому тесті, не в Demo-заявках.</p>
       <div className="mb-4 overflow-x-auto rounded-xl border border-slate-800 bg-slate-900/60 p-3">
@@ -152,6 +159,27 @@ export default function BacktestComparisonPage() {
               <td>{base?.filled ?? "—"}</td><td>{number(base?.totalNetR)}</td>
               <td>{conservative?.filled ?? "—"}</td>
               <td className={(conservative?.totalNetR ?? 0) < 0 ? "text-rose-300" : "text-emerald-300"}>{number(conservative?.totalNetR)}</td>
+            </tr>;
+          })}</tbody>
+        </table>
+      </div>
+      <div className="mb-4 overflow-x-auto rounded-xl border border-slate-800 bg-slate-900/60 p-3">
+        <p className="mb-2 text-sm font-semibold">Вплив окремих факторів виконання</p>
+        <p className="mb-3 text-xs text-slate-400">Результат кожної моделі перераховано на тих самих свічках. Різниця з базою не обовʼязково адитивна: зміна Limit-входу може змінити й наступні сигнали.</p>
+        <table className="w-full min-w-[770px] text-left text-xs">
+          <thead className="text-slate-400"><tr>
+            <th className="pb-2">Пара</th>
+            <th>Базова R</th><th>Лише комісії R</th><th>Лише прослизання R</th>
+            <th>Лише Limit R</th><th>Разом R</th>
+          </tr></thead>
+          <tbody>{SYMBOLS.map((symbol) => {
+            const cases = experimentResults[symbol]?.executionAttribution;
+            const value = (key: string) => cases?.find((item) => item.key === key)?.totalNetR;
+            return <tr key={symbol} className="border-t border-slate-800">
+              <td className="py-2 font-semibold">{symbol}</td>
+              {(["reference", "fees-only", "slippage-only", "fill-only", "conservative"] as const).map((key) => (
+                <td key={key} className={(value(key) ?? 0) < 0 ? "text-rose-300" : "text-emerald-300"}>{number(value(key))}</td>
+              ))}
             </tr>;
           })}</tbody>
         </table>
