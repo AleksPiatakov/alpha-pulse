@@ -121,7 +121,7 @@ async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null):
   if (!(actualRisk > 0 && actualReward > 0)) return reject("reward_risk");
   const actualRR = actualReward / actualRisk;
   if (!Number.isFinite(actualRR) || actualRR < 0.5) return reject("reward_risk");
-  const ready = aligned && volumeConfirmed && momentumConfirmed && entryNearby && hasDailyTarget && actualRR >= 1.5 && pivot !== null;
+  const ready = aligned && volumeConfirmed && momentumConfirmed && entryNearby && hasDailyTarget && actualRR >= 1.5 && pivot !== null && Number(ticker.turnover24h) >= 20_000_000;
   // Heuristic ranking, not an estimated probability of a profitable trade.
   // All candidates already have aligned 4h/1h/30m trends and R:R >= 1.5.
   const momentumPoints = Math.min(Math.abs(change) * 400, 12);
@@ -154,9 +154,10 @@ async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null):
   };
 }
 
-const CYCLE_BATCH = 24;
+const CYCLE_BATCH = 24; // API request batch, NOT a limit on the market universe
 const MAX_VISIBLE = 100;
 const seenPlans = new Map<string, { plan: TradePlan; checkedAt: number }>();
+const visited = new Set<string>();
 let scanCursor = 0;
 let latestScan: { until: number; value: ScanResult } | undefined;
 let activeScan: Promise<ScanResult> | undefined;
@@ -179,13 +180,13 @@ async function doScan(): Promise<ScanResult> {
   if (!response.ok) throw new Error("Bybit market request failed");
   const data = await response.json() as { retCode: number; retMsg?: string; result?: { list?: Ticker[] } };
   if (data.retCode !== 0 || !data.result?.list) throw new Error(data.retMsg || "Не вдалося отримати ринок Bybit.");
-  // No artificial symbol cap. Every liquid linear instrument is covered in a rotating cycle.
+  // Scan the complete available linear ticker universe; liquidity affects readiness, not discovery.
   const eligible = data.result.list.filter((ticker) =>
-    Number.isFinite(Number(ticker.lastPrice)) && Number(ticker.lastPrice) > 0 &&
-    Number(ticker.turnover24h) >= 1_000_000);
+    Number.isFinite(Number(ticker.lastPrice)) && Number(ticker.lastPrice) > 0);
   eligible.sort((a, b) => Number(b.turnover24h) - Number(a.turnover24h));
   const universe = new Set(eligible.map((ticker) => ticker.symbol));
   for (const symbol of seenPlans.keys()) if (!universe.has(symbol)) seenPlans.delete(symbol);
+  for (const symbol of visited) if (!universe.has(symbol)) visited.delete(symbol);
   if (scanCursor >= eligible.length) scanCursor = 0;
   const batch = eligible.slice(scanCursor, scanCursor + CYCLE_BATCH);
   scanCursor = (scanCursor + batch.length) % Math.max(eligible.length, 1);
@@ -193,11 +194,25 @@ async function doScan(): Promise<ScanResult> {
     candles: 0, trend: 0, volume: 0, momentum: 0,
     distance: 0, prices: 0, daily_level: 0, reward_risk: 0, error: 0,
   };
-  const results = await Promise.allSettled(batch.map((ticker) =>
-    makePlan(ticker, (reason) => { rejectionCounts[reason]++; return null; })));
+  // Limit concurrency to avoid bursts of dozens of simultaneous Bybit requests.
+  const results: PromiseSettledResult<TradePlan | null>[] = new Array(batch.length);
+  let index = 0;
+  await Promise.all(Array.from({ length: Math.min(4, batch.length) }, async () => {
+    while (index < batch.length) {
+      const current = index++;
+      const ticker = batch[current];
+      try {
+        results[current] = { status: "fulfilled",
+          value: await makePlan(ticker, (reason) => { rejectionCounts[reason]++; return null; }) };
+      } catch (reason) {
+        results[current] = { status: "rejected", reason };
+      }
+    }
+  }));
   const now = Date.now();
   results.forEach((result, i) => {
     const symbol = batch[i].symbol;
+    visited.add(symbol);
     if (result.status === "fulfilled" && result.value) {
       seenPlans.set(symbol, { plan: result.value, checkedAt: now });
     } else {
@@ -212,7 +227,7 @@ async function doScan(): Promise<ScanResult> {
     .sort((a, b) => (a.status === "ACTIVE" ? -1 : 1) - (b.status === "ACTIVE" ? -1 : 1) || b.score - a.score || b.riskReward - a.riskReward || a.symbol.localeCompare(b.symbol))
     .slice(0, MAX_VISIBLE);
   return { plans, scanned: data.result.list.length, eligible: eligible.length,
-    analyzed: batch.length, covered: seenPlans.size, category: "linear", rejectionCounts };
+    analyzed: batch.length, covered: visited.size, category: "linear", rejectionCounts };
 }
 
 export async function scanTechnicalPlans(): Promise<ScanResult> {
