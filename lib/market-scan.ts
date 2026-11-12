@@ -65,7 +65,12 @@ async function makePlan(ticker: Ticker): Promise<TradePlan | null> {
   if (!(actualRisk > 0 && actualReward > 0)) return null;
   const actualRR = actualReward / actualRisk;
   if (actualRR < 1.5) return null;
-  const score = Math.min(95, Math.round(62 + Math.min(Math.abs(change) * 550, 14) + Math.min(relativeVolume * 5, 10) + 9));
+  // Heuristic ranking, not an estimated probability of a profitable trade.
+  // All candidates already have aligned 4h/1h/30m trends and R:R >= 1.5.
+  const momentumPoints = Math.min(Math.abs(change) * 400, 12);
+  const volumePoints = Math.min(Math.max(relativeVolume - 0.5, 0) * 8, 10);
+  const rewardRiskPoints = Math.min(Math.max((actualRR - 1.5) / 0.9, 0) * 20, 20);
+  const score = Math.min(95, Math.round(53 + momentumPoints + volumePoints + rewardRiskPoints));
   const caution = relativeVolume >= 1.2 ? "Усі три таймфрейми узгоджені, але Limit-зона може не бути протестована." : "Напрямок узгоджений, але обсяг слабкий: не ставте заявку без повторної автооцінки.";
   return {
     id: `${ticker.symbol}-${direction}-${Math.round(entry * 1e6)}`,
