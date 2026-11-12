@@ -6,7 +6,7 @@ import Link from "next/link";
 import type { TradePlan } from "@/lib/trading";
 
 type RejectionCounts = Record<"candles" | "trend" | "volume" | "momentum" | "distance" | "prices" | "daily_level" | "reward_risk" | "error", number>;
-type ScanResponse = { success: boolean; scanned?: number; eligible?: number; analyzed?: number; plans?: TradePlan[]; covered?: number; category?: string; rejectionCounts?: RejectionCounts; generatedAt?: string; error?: string };
+type ScanResponse = { success: boolean; scanned?: number; eligible?: number; analyzed?: number; plans?: TradePlan[]; covered?: number; category?: string; rejectionCounts?: RejectionCounts; generatedAt?: string; error?: string; universePages?: number; universeInstruments?: number; coveragePercent?: number; cycleCompleted?: boolean };
 const rejectionLabels: Array<[keyof RejectionCounts, string]> = [
   ["candles", "Недостатньо свічок"], ["trend", "Немає узгодженого тренду"],
   ["volume", "Недостатній обсяг"], ["momentum", "Слабкий імпульс"],
@@ -33,6 +33,7 @@ export default function MarketScanner() {
   const [plans, setPlans] = useState<TradePlan[]>([]);
   const [counts, setCounts] = useState({ scanned: 0, eligible: 0, analyzed: 0, covered: 0 });
   const [updatedAt, setUpdatedAt] = useState<string>();
+  const [marketCoverage, setMarketCoverage] = useState({ pages: 0, instruments: 0, percent: 0, complete: false });
   const [rejectionCounts, setRejectionCounts] = useState<RejectionCounts>();
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(true);
@@ -46,6 +47,8 @@ export default function MarketScanner() {
       setPlans(data.plans ?? []);
       setCounts({ scanned: data.scanned ?? 0, eligible: data.eligible ?? 0, analyzed: data.analyzed ?? 0, covered: data.covered ?? 0 });
       setUpdatedAt(data.generatedAt); setRejectionCounts(data.rejectionCounts); setError(undefined);
+      setMarketCoverage({ pages: data.universePages ?? 0, instruments: data.universeInstruments ?? 0,
+        percent: data.coveragePercent ?? 0, complete: data.cycleCompleted ?? false });
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Помилка сканування."); }
     finally { setLoading(false); }
   }, []);
@@ -98,7 +101,8 @@ export default function MarketScanner() {
           <div aria-label="Статистика сканера" className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400 sm:gap-x-4">
           <span>Bybit linear <strong className="font-semibold text-slate-200">{counts.scanned}</strong></span>
           <span>Доступних <strong className="font-semibold text-slate-200">{counts.eligible}</strong></span>
-          <span>Перевірено <strong className="font-semibold text-slate-200">{counts.covered}/{counts.eligible}</strong></span>
+          <span>Реєстр <strong className="font-semibold text-slate-200">{marketCoverage.instruments}</strong> · стор. {marketCoverage.pages}</span>
+          <span>Обхід <strong className="font-semibold text-slate-200">{counts.covered}/{counts.eligible}</strong> ({marketCoverage.percent}%) {marketCoverage.complete ? "✓" : "…"}</span>
           <span>Видимих <strong className="font-semibold text-emerald-300">{featuredCount}</strong></span>
           <span>Оновлено <strong className="font-semibold tabular-nums text-slate-200">{updatedAt ? new Date(updatedAt).toLocaleTimeString() : "—"}</strong></span>
           </div>
