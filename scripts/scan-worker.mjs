@@ -10,11 +10,11 @@ process.on("SIGTERM", () => { stopping = true; });
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function tick() {
   try {
-    const response = await fetch(new URL("/api/scan", base), { signal: AbortSignal.timeout(120_000), cache: "no-store" });
+    const response = await fetch(new URL("/api/scan/worker", base), { signal: AbortSignal.timeout(120_000), cache: "no-store" });
     const result = await response.json();
     if (!response.ok || !result.success) throw new Error(result.error ?? `HTTP ${response.status}`);
     const stamp = new Date().toISOString();
-    console.log(`[${stamp}] coverage ${result.covered}/${result.eligible} (${result.coveragePercent}%) | this batch ${result.analyzed} | candidates ${result.plans?.length ?? 0} | registry ${result.universeInstruments} active instruments / ${result.universePages} pages`);
+    console.log(`[${stamp}] coverage ${result.covered}/${result.eligible} (${result.coveragePercent}%) | this batch ${result.analyzed} | sweep ${result.cycleCompleted ? "complete" : "in progress"} | registry ${result.universeInstruments} active instruments / ${result.universePages} pages`);
   } catch (error) {
     console.error(`[${new Date().toISOString()}] scan failed: ${error instanceof Error ? error.message : String(error)}`);
   }
