@@ -144,7 +144,8 @@ function evaluateAt(history: ReplayTimeframes): Setup | null {
     pivot1h: p60 !== null, pivot4h: p240 !== null, pivotDaily: pd !== null,
     hasTargetLevel: true,
   });
-  const trendStrengthAtr = Math.abs(h240.at(-1)!.close - ema(h240, 50)) / atr(h240);
+  const atr4h = atr(h240);
+  const trendStrengthAtr = atr4h > 0 ? Math.abs(h240.at(-1)!.close - ema(h240, 50)) / atr4h : 0;
   return quality.status === "ACTIVE" ? {
     direction, entry, stop, target,
     diagnostics: { score: quality.score, readiness: quality.confirmedConditions,
