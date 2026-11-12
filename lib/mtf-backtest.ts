@@ -6,6 +6,19 @@ export type ReplayBar = {
 };
 export type ReplayDirection = "LONG" | "SHORT";
 export type ReplayVariant = "baseline" | "near-entry" | "moderate-trend" | "lower-volume";
+export function passesExperimentFilter(
+  variant: ReplayVariant,
+  features: { distanceAtr: number; trendStrengthAtr: number; relativeVolume: number },
+): boolean {
+  if (![features.distanceAtr, features.trendStrengthAtr, features.relativeVolume].every(Number.isFinite)) return false;
+  switch (variant) {
+    case "near-entry": return features.distanceAtr <= 1;
+    case "moderate-trend": return features.trendStrengthAtr < 1;
+    case "lower-volume": return features.relativeVolume < 1.2;
+    case "baseline": return true;
+  }
+}
+
 export const REPLAY_VARIANTS: ReadonlyArray<{ key: ReplayVariant; label: string }> = [
   { key: "baseline", label: "Поточні правила" },
   { key: "near-entry", label: "Вхід не далі 1 ATR" },
@@ -155,9 +168,7 @@ function evaluateAt(history: ReplayTimeframes, variant: ReplayVariant): Setup | 
   const atr4h = atr(h240);
   const trendStrengthAtr = atr4h > 0 ? Math.abs(h240.at(-1)!.close - ema(h240, 50)) / atr4h : 0;
   if (quality.status !== "ACTIVE") return null;
-  if (variant === "near-entry" && distanceAtr > 1) return null;
-  if (variant === "moderate-trend" && trendStrengthAtr >= 1) return null;
-  if (variant === "lower-volume" && relativeVolume >= 1.2) return null;
+  if (!passesExperimentFilter(variant, { distanceAtr, trendStrengthAtr, relativeVolume })) return null;
   return {
     direction, entry, stop, target,
     diagnostics: { score: quality.score, readiness: quality.confirmedConditions,
