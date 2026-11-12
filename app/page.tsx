@@ -56,7 +56,15 @@ export default function MarketScanner() {
     return () => { window.clearTimeout(initial); window.clearInterval(interval); };
   }, [refresh]);
 
-  const featuredPlans = plans.filter((plan) => plan.status === "ACTIVE" || isInEntryZone(plan));
+  // Confirmed and in-zone are independent attributes: never rank an unconfirmed setup above a confirmed one solely for proximity.
+  const featuredPlans = plans
+    .filter((plan) => plan.status === "ACTIVE" || isInEntryZone(plan))
+    .sort((a, b) =>
+      Number(b.status === "ACTIVE") - Number(a.status === "ACTIVE") ||
+      Number(isInEntryZone(b)) - Number(isInEntryZone(a)) ||
+      b.score - a.score ||
+      b.riskReward - a.riskReward ||
+      a.symbol.localeCompare(b.symbol));
   const waitingPlans = plans.filter((plan) => plan.status !== "ACTIVE" && !isInEntryZone(plan));
   const displayedPlans = showWaiting ? [...featuredPlans, ...waitingPlans] : featuredPlans;
 
@@ -109,7 +117,7 @@ export default function MarketScanner() {
           return <article key={plan.id} className={`rounded-xl border bg-slate-900 p-4 shadow-lg ${rank?.border ?? "border-slate-700"}`}>
             <div className="mb-3 flex items-start justify-between gap-3">
               <div className="flex items-center gap-2">
-                <span className={`rounded-md px-2 py-1 text-[10px] font-black uppercase tracking-wide ${rank?.badge ?? "bg-slate-700 text-slate-200"}`}>{rank?.label ?? `Top ${index + 1}`}</span><span className={`rounded px-2 py-1 text-[10px] font-semibold ${plan.status === "ACTIVE" ? "bg-emerald-950 text-emerald-200" : "bg-amber-950 text-amber-200"}`}>{isInEntryZone(plan) ? "У зоні входу" : plan.status === "ACTIVE" ? "Підтверджено" : "Очікування"}</span>
+                <span className={`rounded-md px-2 py-1 text-[10px] font-black uppercase tracking-wide ${rank?.badge ?? "bg-slate-700 text-slate-200"}`}>{rank?.label ?? `Top ${index + 1}`}</span><span className={`rounded px-2 py-1 text-[10px] font-semibold ${plan.status === "ACTIVE" ? "bg-emerald-950 text-emerald-200" : "bg-amber-950 text-amber-200"}`}>{plan.status === "ACTIVE" ? (isInEntryZone(plan) ? "Підтверджено · у зоні" : "Підтверджено") : (isInEntryZone(plan) ? "У зоні · не підтверджено" : "Очікування")}</span>
                 <h3 className="text-lg font-black">{plan.symbol}</h3>
               </div>
               <span className={`rounded-full px-2 py-1 text-xs font-bold ${isLong ? "bg-emerald-950 text-emerald-300" : "bg-rose-950 text-rose-300"}`}>{plan.direction}</span>
