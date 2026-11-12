@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { trendPullback, breakoutRetest, evaluateResearchStrategies, RESEARCH_STRATEGIES } from "../lib/research-strategies.ts";
 import { sealMarketInputSnapshot } from "../lib/market-input-snapshot.ts";
 const makeBars = (n = 90) => Array.from({length:n},(_,i)=>{
-  const close = 100+i*.3;
+  const close = 100+i*.1;
   return {close, high:close+.5, low:close-.5};
 });
 const ctx = () => ({symbol:"BTCUSDT",signalAt:Date.UTC(2026,10,12,16),
@@ -17,7 +17,7 @@ test("confirmed pullback uses only completed bars and returns explicit hypotheti
   const input=ctx(), m=input.m30;
   // The previous candle pierces EMA20, current candle recovers above it.
   const prev=m.at(-2);
-  prev.low-=1.5;prev.close-=1;
+  prev.low-=0.8;prev.close-=0.4;
   const result=trendPullback.evaluate(input);
   assert.ok(result);
   assert.equal(result.direction,"LONG");
