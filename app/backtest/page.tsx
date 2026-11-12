@@ -16,6 +16,13 @@ type TestResult = {
   periods?: PeriodStats[]; diagnostics?: Array<{ label: string; trades: number; wins: number; winRate: number | null; averageNetR: number | null; totalNetR: number; maxDrawdownR: number }>;
   warnings?: string[]; partialHistory?: boolean; error?: string;
 };
+type VariantStats = {
+  key: string; label: string; signals: number; filled: number;
+  totalNetR: number; averageNetR: number | null; winRate: number | null;
+  maxDrawdownR: number; periods: PeriodStats[];
+};
+type ExperimentResult = { success: boolean; experiments?: VariantStats[];
+  partialHistory?: boolean; error?: string; warnings?: string[] };
 type ResultMap = Partial<Record<SymbolName, TestResult>>;
 
 const number = (value: number | null | undefined, digits = 2) =>
@@ -27,6 +34,31 @@ export default function BacktestComparisonPage() {
   const [results, setResults] = useState<ResultMap>({});
   const [busy, setBusy] = useState(false);
   const [current, setCurrent] = useState<SymbolName | null>(null);
+  const [experimentResults, setExperimentResults] = useState<Partial<Record<SymbolName, ExperimentResult>>>({});
+  const [experimentBusy, setExperimentBusy] = useState(false);
+  const [experimentCurrent, setExperimentCurrent] = useState<SymbolName | null>(null);
+
+  async function runExperiment() {
+    if (busy || experimentBusy) return;
+    setExperimentBusy(true);
+    setExperimentResults({});
+    try {
+      for (const symbol of SYMBOLS) {
+        setExperimentCurrent(symbol);
+        try {
+          const response = await fetch(`/api/backtest?symbol=${symbol}&experiment=1`, { cache: "no-store" });
+          const data = await response.json() as ExperimentResult;
+          setExperimentResults((old) => ({ ...old, [symbol]:
+            response.ok && data.success ? data : { success: false, error: data.error || "Експеримент недоступний." } }));
+        } catch {
+          setExperimentResults((old) => ({ ...old, [symbol]: { success: false, error: "Немає зв'язку з сервером." } }));
+        }
+      }
+    } finally {
+      setExperimentBusy(false);
+      setExperimentCurrent(null);
+    }
+  }
 
   async function runComparison() {
     if (busy) return;
@@ -58,14 +90,21 @@ export default function BacktestComparisonPage() {
           <Link href="/" className="text-sm font-semibold text-emerald-400 hover:text-emerald-300">← Сканер</Link>
           <h1 className="text-xl font-bold">Порівняння історичних тестів</h1>
         </div>
-        <button type="button" disabled={busy} onClick={() => void runComparison()}
+        <div className="flex flex-wrap gap-2">
+        <button type="button" disabled={busy || experimentBusy} onClick={() => void runComparison()}
           className="rounded-lg border border-emerald-500/60 bg-emerald-400 px-4 py-2 text-sm font-bold text-slate-950 disabled:opacity-60">
           {busy ? `Перевіряється ${current ?? ""}…` : "Перевірити 4 пари Bybit"}
         </button>
+        <button type="button" disabled={busy || experimentBusy} onClick={() => void runExperiment()}
+          className="rounded-lg border border-slate-600 bg-slate-900 px-4 py-2 text-sm font-semibold text-slate-100 disabled:opacity-60">
+          {experimentBusy ? `Експеримент ${experimentCurrent ?? ""}…` : "Порівняти 3 гіпотези"}
+        </button>
+        </div>
       </header>
       <p className="mb-5 text-xs text-slate-400">
         BTC, ETH, SOL і BNB · 30m / 1h / 4h / 1D · однакові правила · тільки Bybit.
         Результати — історична модель, не прогноз прибутку. Кожна пара перевіряється окремо.
+        Гіпотези — окремі повні симуляції; друга половина історії вже раніше переглядалася, тому не є незалежним holdout.
       </p>
       <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-900/70">
         <table className="w-full min-w-[790px] text-left text-sm">
@@ -122,6 +161,33 @@ export default function BacktestComparisonPage() {
             </table></div>
           </details>}
           {!!result.warnings?.length && <p className="mt-3 text-xs text-amber-300">{result.warnings.join(" ")}</p>}
+        </section>;
+      })}
+      {SYMBOLS.map((symbol) => {
+        const value = experimentResults[symbol];
+        if (!value && experimentCurrent !== symbol) return null;
+        return <section key={symbol} className="mt-4 rounded-xl border border-slate-800 bg-slate-900/70 p-4">
+          <h2 className="mb-2 font-semibold">{symbol} · Порівняння гіпотез</h2>
+          {!value ? <p className="text-sm text-slate-400">Перерахунок усіх варіантів…</p>
+            : !value.success ? <p className="text-sm text-amber-300">{value.error}</p> : <>
+              <p className="mb-3 text-xs text-amber-200">Ретроспективний експеримент, не підтвердження прибутковості. Пороги вибрано після перегляду цієї історії.</p>
+              <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs">
+                <thead className="text-slate-400"><tr>
+                  <th className="pb-2">Варіант</th><th>Угод</th><th>Середнє R</th><th>Сума R</th><th>Просідання</th>
+                  <th>Перша половина R</th><th>Друга половина R</th>
+                </tr></thead>
+                <tbody>{value.experiments?.map((item) => <tr key={item.key} className="border-t border-slate-800">
+                  <td className="py-2 font-semibold">{item.label}</td>
+                  <td>{item.filled}</td>
+                  <td className={(item.averageNetR ?? 0) < 0 ? "text-rose-300" : "text-emerald-300"}>{number(item.averageNetR, 3)}</td>
+                  <td>{number(item.totalNetR, 2)}</td>
+                  <td>{number(item.maxDrawdownR, 2)}</td>
+                  <td>{number(item.periods[0]?.totalNetR, 2)}</td>
+                  <td>{number(item.periods[1]?.totalNetR, 2)}</td>
+                </tr>)}</tbody>
+              </table></div>
+              {!!value.warnings?.length && <p className="mt-2 text-xs text-amber-300">{value.warnings.join(" ")}</p>}
+            </>}
         </section>;
       })}
       <p className="mt-5 text-xs text-slate-500">Максимальне просідання в R — накопичений спад при постійному ризику на угоду, не відсоток від балансу. Модель враховує задані комісії, але не funding, спред і фактичну чергу виконання Limit.</p>
