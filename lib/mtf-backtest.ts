@@ -1,6 +1,7 @@
 import { calculatePlanningLevels, assessPlanningLevels } from "./trade-planning-engine.ts";
 import { INTRADAY_POLICY_V1 } from "./intraday-quality.ts";
-import { emaBars, atrBars, trendBars, nearestSwingLevel, isCompletedBar } from "./technical-plan-core.ts";
+import { emaBars, atrBars, trendBars, nearestSwingLevel } from "./technical-plan-core.ts";
+import { closedBarAt, TIMEFRAME_MS, type MarketTimeframe } from "./market-observation-clock.ts";
 
 export type ReplayBar = {
   time: number; open: number; high: number; low: number; close: number;
@@ -53,7 +54,7 @@ export type ReplayTimeframes = {
   "30": ReplayBar[]; "60": ReplayBar[]; "240": ReplayBar[]; D: ReplayBar[];
 };
 
-const durations = { "30": 1_800_000, "60": 3_600_000, "240": 14_400_000, D: 86_400_000 } as const;
+const durations = TIMEFRAME_MS;
 const feePerSide = 0.00055;
 export type ExecutionMode = "reference" | "fees-only" | "slippage-only" | "fill-only" | "conservative";
 export const EXECUTION_STRESS_CASES: ReadonlyArray<{ key: ExecutionMode; label: string }> = [
@@ -117,12 +118,12 @@ function prepare(bars: ReplayBar[]): ReplayBar[] {
   const filtered = bars.filter(validBar).sort((a, b) => a.time - b.time);
   return filtered.filter((b, i) => i === 0 || b.time !== filtered[i - 1].time);
 }
-function historyAt(bars: ReplayBar[], decisionTime: number, duration: number): ReplayBar[] {
+function historyAt(bars: ReplayBar[], decisionTime: number, interval: MarketTimeframe): ReplayBar[] {
   // Bars with close timestamp <= decision time only. No forming candle or future pivot.
   let lo = 0, hi = bars.length;
   while (lo < hi) {
     const mid = (lo + hi) >>> 1;
-    if (isCompletedBar(bars[mid].time, duration, decisionTime)) lo = mid + 1;
+    if (closedBarAt(bars[mid].time, interval, decisionTime)) lo = mid + 1;
     else hi = mid;
   }
   return bars.slice(Math.max(0, lo - 200), lo);
@@ -240,10 +241,10 @@ export function replayMultiTimeframeStrategy(
     const bar = decisionBars[i];
     const time = bar.time + durations["30"];
     const h = {
-      "30": historyAt(bars["30"], time, durations["30"]),
-      "60": historyAt(bars["60"], time, durations["60"]),
-      "240": historyAt(bars["240"], time, durations["240"]),
-      D: historyAt(bars.D, time, durations.D),
+      "30": historyAt(bars["30"], time, "30"),
+      "60": historyAt(bars["60"], time, "60"),
+      "240": historyAt(bars["240"], time, "240"),
+      D: historyAt(bars.D, time, "D"),
     };
     if (Object.entries(minHistory).some(([key, length]) =>
       h[key as keyof ReplayTimeframes].length < length)) { i++; continue; }
