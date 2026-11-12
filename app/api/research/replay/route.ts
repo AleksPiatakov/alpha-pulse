@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { compareFrozenMarketPlan } from "@/lib/snapshot-parity";
+import { evaluateResearchStrategies } from "@/lib/research-strategies";
 import { verifyMarketInputSnapshot, type SealedMarketInputSnapshot } from "@/lib/market-input-snapshot";
 
 const MAX_JSON_BYTES = 1_000_000;
@@ -23,7 +24,8 @@ export async function POST(request: Request) {
       tickerReference:parity.tickerReference,
       closeReference:parity.closeReference,
       closeModeDifferences:parity.closeModeDifferences,
-      caveat:"Історична симуляція виконання та результатів угод не виконується. Жодних нових запитів до біржі.",
+      researchStrategies: evaluateResearchStrategies(candidate),
+      caveat:"Trend Pullback та Breakout Retest — дослідницькі кандидати, не дозволи на заявки; результати угод та прибутковість не моделюються. Жодних нових запитів до біржі.",
     },{headers:{"Cache-Control":"no-store"}});
   } catch {
     return NextResponse.json({success:false,error:"Невірний JSON."},{status:400});
