@@ -9,9 +9,10 @@ import { TradingChart } from "@/app/components/TradingChart";
 
 type AccountSnapshot = { balance: number; availableBalance: number | null; activeCount: number; source: string };
 type ScanResponse = { success?: boolean; plans?: TradePlan[]; error?: string };
+type BacktestTrade = { signalTime: number; entryTime: number; exitTime: number; direction: "LONG" | "SHORT"; entry: number; stop: number; target: number; netR: number; result: "TP" | "SL" | "TIMEOUT" };
 type BacktestData = { success: boolean; mode?: string; filled?: number; signals?: number; unfilled?: number;
   wins?: number; winRate?: number | null; totalNetR?: number; averageNetR?: number | null;
-  assumptions?: string[]; error?: string };
+  assumptions?: string[]; trades?: BacktestTrade[]; error?: string };
 const price = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 6 })}`;
 const money = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 function storedSettings() { try { return normalizeRiskSettings(JSON.parse(localStorage.getItem(RISK_SETTINGS_KEY) || "null")); } catch { return defaultRiskSettings; } }
@@ -128,6 +129,21 @@ function TradePageContent() {
                   ? <p>Сигналів: {backtest.signals ?? 0} · Виконано: {backtest.filled ?? 0} · Без входу: {backtest.unfilled ?? 0} · Прибуткових: {backtest.wins ?? 0} · Частка: {backtest.winRate === null ? "—" : `${backtest.winRate}%`} · Середнє: {backtest.averageNetR ?? "—"} R</p>
                   : <p className="text-amber-200">{backtest.error}</p>}
                 <p className="text-amber-200">Walk-forward тест чотирьох таймфреймів з наближеним виконанням Limit. Історична ефективність не гарантує майбутню.</p>
+                {backtest.success && !!backtest.trades?.length && <details className="rounded border border-slate-800 p-2">
+                  <summary className="cursor-pointer text-slate-300">Журнал останніх {backtest.trades.length} симульованих угод</summary>
+                  <div className="mt-2 max-h-64 overflow-auto">
+                    <table className="w-full text-left text-[11px]">
+                      <thead className="text-slate-500"><tr><th className="py-1">Вхід</th><th>Тип</th><th>Ціна</th><th>Вихід</th><th className="text-right">Нетто R</th></tr></thead>
+                      <tbody>{backtest.trades.map((trade, index) => <tr key={`${trade.entryTime}-${index}`} className="border-t border-slate-800">
+                        <td className="py-1">{new Date(trade.entryTime).toLocaleDateString()}</td>
+                        <td>{trade.direction}</td>
+                        <td>{price(trade.entry)}</td>
+                        <td>{trade.result}</td>
+                        <td className={`text-right font-semibold ${trade.netR >= 0 ? "text-emerald-300" : "text-rose-300"}`}>{trade.netR.toFixed(2)} R</td>
+                      </tr>)}</tbody>
+                    </table>
+                  </div>
+                </details>}
                 {backtest.assumptions && <ul className="list-inside list-disc space-y-1 text-slate-400">
                   {backtest.assumptions.map((item) => <li key={item}>{item}</li>)}
                 </ul>}
