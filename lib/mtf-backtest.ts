@@ -52,6 +52,37 @@ export type ReplayTimeframes = {
 
 const durations = { "30": 1_800_000, "60": 3_600_000, "240": 14_400_000, D: 86_400_000 } as const;
 const feePerSide = 0.00055;
+export type ExecutionMode = "reference" | "conservative";
+export const CONSERVATIVE_EXECUTION = {
+  // Explicit hypothetical stress assumptions, not measured Bybit execution statistics.
+  entryPenetrationTicks: 1,
+  feePerSide: 0.00075,
+  stopSlippageBps: 10,
+  timeoutSlippageBps: 5,
+} as const;
+
+export function qualifiesLimitFill(
+  bar: ReplayBar, direction: ReplayDirection, entry: number, tickSize: number,
+): boolean {
+  if (!(tickSize > 0 && Number.isFinite(tickSize))) return false;
+  // One full tick *past* the limit in the favorable direction must trade.
+  // At an opening gap through the limit, no optimistic instant fill is assumed.
+  const penetrated = direction === "LONG"
+    ? bar.low <= entry - tickSize : bar.high >= entry + tickSize;
+  return penetrated && bar.low <= entry && entry <= bar.high;
+}
+export function stressedExitPrice(
+  direction: ReplayDirection, result: "SL" | "TP" | "TIMEOUT",
+  nominalExit: number, openPrice: number, slippageBps: number,
+): number {
+  if (result === "TP") return nominalExit;
+  const worseOfStopAndOpen = result === "SL"
+    ? (direction === "LONG" ? Math.min(nominalExit, openPrice) : Math.max(nominalExit, openPrice))
+    : nominalExit;
+  const adverse = direction === "LONG" ? 1 - slippageBps / 10_000 : 1 + slippageBps / 10_000;
+  return worseOfStopAndOpen * adverse;
+}
+
 const maxPendingBars = 12; // 6h for a 30m limit order
 const maxHoldBars = 96; // 48h once filled
 const minHistory = { "30": 60, "60": 60, "240": 60, D: 60 } as const;
@@ -154,11 +185,13 @@ export function replayMultiTimeframeStrategy(
   feeRate = feePerSide,
   variant: ReplayVariant = "baseline",
   tickSize?: number,
+  executionMode: ExecutionMode = "reference",
 ): ReplaySummary {
   const bars = {
     "30": prepare(raw["30"]), "60": prepare(raw["60"]),
     "240": prepare(raw["240"]), D: prepare(raw.D),
   };
+  if (executionMode === "conservative" && !(tickSize !== undefined && tickSize > 0)) throw Error("Для консервативної моделі потрібен біржовий tickSize.");
   const assumptions = [
     "Walk-forward 30m/1h/4h/1D: кожне рішення використовує лише повністю закриті свічки.",
     "Правила EMA20/50, підтверджених swing-рівнів, ATR і перевірок готовності; історичний 24h оборот — сума годинних turnover Bybit.",
@@ -169,6 +202,11 @@ export function replayMultiTimeframeStrategy(
     "Просідання виражене сумою R при постійному ризику на угоду; це не просідання рахунку у відсотках.",
     "Групи діагностики класифікують тільки виконані угоди за ознаками, відомими на момент сигналу, та не є новими торговими правилами.",
     "Дані обмежені доступною історією Bybit; тест не прогнозує результат майбутньої торгівлі.",
+    ...(executionMode === "conservative" ? [
+      "Консервативний сценарій: Limit зараховується лише після проходження ціною рівня на 1 tick; OHLC не гарантує реального виконання.",
+      "Гіпотетичні витрати: комісія 0.075% на кожний бік, Stop Loss +10 bps adverse slippage, TIMEOUT +5 bps; Take Profit без додаткового проскальзування.",
+      "Для Stop Loss враховується несприятливий gap на відкритті 30m свічки; порядок руху ціни всередині свічки невідомий.",
+    ] : []),
   ];
   const trades: ReplayTrade[] = [];
   let signals = 0, unfilled = 0;
@@ -192,7 +230,10 @@ export function replayMultiTimeframeStrategy(
     let entryIndex = -1;
     const fillEnd = Math.min(i + 1 + maxPendingBars, decisionBars.length);
     for (let j = i + 1; j < fillEnd; j++) {
-      if (decisionBars[j].low <= entry && entry <= decisionBars[j].high) {
+      const fills = executionMode === "conservative"
+        ? qualifiesLimitFill(decisionBars[j], direction, entry, tickSize!)
+        : decisionBars[j].low <= entry && entry <= decisionBars[j].high;
+      if (fills) {
         entryIndex = j; break;
       }
     }
@@ -206,8 +247,13 @@ export function replayMultiTimeframeStrategy(
         j === exitEnd - 1 ? "TIMEOUT" : null;
       if (!result) continue;
       const exit = result === "SL" ? stop : result === "TP" ? target : candle.close;
-      const net = (direction === "LONG" ? exit - entry : entry - exit) -
-        (entry + exit) * feeRate;
+      const executedExit = executionMode === "conservative"
+        ? stressedExitPrice(direction, result, exit, candle.open,
+          result === "SL" ? CONSERVATIVE_EXECUTION.stopSlippageBps : CONSERVATIVE_EXECUTION.timeoutSlippageBps)
+        : exit;
+      const chargedFee = executionMode === "conservative" ? CONSERVATIVE_EXECUTION.feePerSide : feeRate;
+      const net = (direction === "LONG" ? executedExit - entry : entry - executedExit) -
+        (entry + executedExit) * chargedFee;
       trades.push({ signalTime: time, entryTime: decisionBars[entryIndex].time,
         exitTime: candle.time, direction, entry, stop, target,
         netR: Number((net / Math.abs(entry - stop)).toFixed(4)), result,
