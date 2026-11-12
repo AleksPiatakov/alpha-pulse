@@ -95,3 +95,28 @@ export function rewardRisk(
   const reward = direction === "LONG" ? target - entry : entry - target;
   return reward / risk;
 }
+
+/** Existing scanner decimal precision policy (not Bybit instrument tickSize). */
+export function roundPlanPrice(value: number): number {
+  return Number(value.toFixed(value >= 1000 ? 1 : value >= 1 ? 3 : value >= 0.01 ? 5 : 8));
+}
+
+/** Bybit kline timestamps are bar OPEN times in milliseconds, not close times. */
+export function isCompletedBar(openTime: number, durationMs: number, observedAt: number): boolean {
+  return Number.isFinite(openTime) && Number.isFinite(durationMs) && durationMs > 0 &&
+    Number.isFinite(observedAt) && openTime >= 0 &&
+    openTime + durationMs <= observedAt;
+}
+
+/** Avoid computing quality or trades on a nonpositive rounded risk/reward. */
+export function roundedPlanLevels(
+  direction: TechnicalDirection, entry: number, stop: number, target: number,
+): { entry: number; stop: number; target: number; rr: number } | null {
+  if (![entry, stop, target].every(Number.isFinite) || entry <= 0 || stop <= 0 || target <= 0) return null;
+  const roundedEntry = roundPlanPrice(entry);
+  const roundedStop = roundPlanPrice(stop);
+  const roundedTarget = roundPlanPrice(target);
+  const rr = rewardRisk(direction, roundedEntry, roundedStop, roundedTarget);
+  return roundedEntry > 0 && roundedStop > 0 && roundedTarget > 0 && Number.isFinite(rr) && rr > 0
+    ? { entry: roundedEntry, stop: roundedStop, target: roundedTarget, rr } : null;
+}
