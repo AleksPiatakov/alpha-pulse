@@ -248,7 +248,7 @@ export function replayMultiTimeframeStrategy(
       if (!result) continue;
       const exit = result === "SL" ? stop : result === "TP" ? target : candle.close;
       const executedExit = executionMode === "conservative"
-        ? stressedExitPrice(direction, result, exit, candle.open,
+        ? stressedExitPrice(direction, result, exit, j === entryIndex ? exit : candle.open,
           result === "SL" ? CONSERVATIVE_EXECUTION.stopSlippageBps : CONSERVATIVE_EXECUTION.timeoutSlippageBps)
         : exit;
       const chargedFee = executionMode === "conservative" ? CONSERVATIVE_EXECUTION.feePerSide : feeRate;
