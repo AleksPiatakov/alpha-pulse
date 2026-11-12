@@ -140,7 +140,7 @@ export async function GET(request: Request) {
       ...result, experiments, trades: result.trades,
     };
     if (cache.size > 50) cache.clear();
-    cache.set(cacheKey, { until: now + 5 * 60_000, payload });
+    cache.set(cacheKey, { until: Date.now() + 5 * 60_000, payload });
     return NextResponse.json(payload);
   } catch (caught) {
     return NextResponse.json({ success: false,
