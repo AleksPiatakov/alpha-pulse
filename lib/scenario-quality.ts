@@ -13,7 +13,7 @@ export type QualityInput = {
   pivotDaily: boolean;
   hasTargetLevel: boolean;
 };
-export type QualityResult = { score: number; status: "ACTIVE" | "REVIEW"; checks: string[] };
+export type QualityResult = { score: number; status: "ACTIVE" | "REVIEW"; checks: string[]; confirmedConditions: number; totalConditions: number };
 
 // A deterministic, comparative ranking. It is not a probability or a forecast of P&L.
 export function evaluateScenarioQuality(input: QualityInput): QualityResult {
@@ -55,5 +55,5 @@ export function evaluateScenarioQuality(input: QualityInput): QualityResult {
     trendPoints + levelPoints + volumePoints + rrPoints +
     distancePoints + liquidityPoints + momentumPoints + targetPoints
   )));
-  return { score, status: ready ? "ACTIVE" : "REVIEW", checks };
+  return { score, status: ready ? "ACTIVE" : "REVIEW", checks, confirmedConditions: 8 - checks.length, totalConditions: 8 };
 }
