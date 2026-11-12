@@ -13,7 +13,8 @@ type Result = {
 };
 type ResearchRecord = {
   id: string; createdAt: string; cutoff: string; status: "research-only";
-  snapshotHashes: Record<string, string>; result: Record<string, Result>;
+  snapshotHashes: Record<string, string>;
+  comparisons: Array<{ key: string; normalR: number; stressR: number; trades: number }>;
 };
 const STORAGE_KEY = "alpha-pulse-strategy-lab-v1";
 const cutoff = "2026-11-12T00:00:00.000Z";
@@ -69,7 +70,14 @@ export default function StrategyLabPage() {
           id: `lab-${Date.now()}`, createdAt: new Date().toISOString(),
           cutoff, status: "research-only",
           snapshotHashes: Object.fromEntries(SYMBOLS.map((symbol) => [symbol, output[symbol]!.snapshotSha256! ])),
-          result: Object.fromEntries(SYMBOLS.map((symbol) => [symbol, output[symbol]! ])),
+          comparisons: LAB_CANDIDATES.map((candidate) => {
+            const normal = SYMBOLS.map((symbol) => output[symbol]!.experiments!.find((run) => run.key === candidate.key)!);
+            const stress = SYMBOLS.map((symbol) => output[symbol]!.conservativeExperiments!.find((run) => run.key === candidate.key)!);
+            return { key: candidate.key,
+              normalR: Number(normal.reduce((sum, run) => sum + run.totalNetR, 0).toFixed(3)),
+              stressR: Number(stress.reduce((sum, run) => sum + run.totalNetR, 0).toFixed(3)),
+              trades: normal.reduce((sum, run) => sum + run.filled, 0) };
+          }),
         };
         try {
           const previous: ResearchRecord[] = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
