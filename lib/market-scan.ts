@@ -1,5 +1,6 @@
 import { DEMO_BYBIT_URL, roundPrice, type PlanDirection, type TradePlan } from "@/lib/trading";
 import { calculatePlanningLevels, assessPlanningLevels } from "./trade-planning-engine.ts";
+import { explainPlanLifecycle } from "./trade-plan-lifecycle.ts";
 import { fetchLinearUniverse, matchUniverseTickers, type UniverseResult, type InstrumentMeta } from "./bybit-universe.ts";
 import { parseExecutionRules } from "./bybit-execution-rules.ts";
 import { roundToTick } from "./technical-plan-core.ts";
@@ -99,7 +100,8 @@ async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null, 
     caution,
     nextStep: quality.status === "ACTIVE" ? "Перевірте актуальний план і ризик перед Demo-заявкою." : "Дочекайтеся додаткового підтвердження або випробуйте сценарій у Demo.",
     explanationSource: "rule",
-    invalidation: direction === "LONG" ? `1h закриття нижче ${roundedStop}` : `1h закриття вище ${roundedStop}`,
+    invalidation: explainPlanLifecycle(direction, roundedStop).setupReview,
+    lifecycle: explainPlanLifecycle(direction, roundedStop),
     status: quality.status,
   };
 }
