@@ -1,5 +1,5 @@
 import { evaluateScenarioQuality } from "./scenario-quality.ts";
-import { emaBars, atrBars, trendBars, nearestSwingLevel, nearestAcrossTimeframes, stopFromAtr, structuralTarget, rewardRisk } from "./technical-plan-core.ts";
+import { emaBars, atrBars, trendBars, nearestSwingLevel, nearestAcrossTimeframes, stopFromAtr, structuralTarget, isCompletedBar, roundedPlanLevels } from "./technical-plan-core.ts";
 
 export type ReplayBar = {
   time: number; open: number; high: number; low: number; close: number;
@@ -74,7 +74,7 @@ function historyAt(bars: ReplayBar[], decisionTime: number, duration: number): R
   let lo = 0, hi = bars.length;
   while (lo < hi) {
     const mid = (lo + hi) >>> 1;
-    if (bars[mid].time + duration <= decisionTime) lo = mid + 1;
+    if (isCompletedBar(bars[mid].time, duration, decisionTime)) lo = mid + 1;
     else hi = mid;
   }
   return bars.slice(Math.max(0, lo - 200), lo);
@@ -101,15 +101,18 @@ function evaluateAt(history: ReplayTimeframes, variant: ReplayVariant): Setup | 
   const p60 = nearestSwingLevel(h60, direction, price);
   const p240 = nearestSwingLevel(h240, direction, price);
   const pd = nearestSwingLevel(daily, direction, price);
-  const entry = nearestAcrossTimeframes([p30, p60, p240, pd], direction);
-  if (entry === null) return null;
-  const distanceAtr = Math.abs(price - entry) / a30;
-  const stop = stopFromAtr(direction, entry, a60, a30);
-  if (!(entry > 0 && stop > 0)) return null;
-  const target = structuralTarget(direction, entry, stop, daily);
-  if (target === null || target <= 0) return null;
-  const rr = rewardRisk(direction, entry, stop, target);
-  if (!(rr > 0)) return null;
+  const rawEntry = nearestAcrossTimeframes([p30, p60, p240, pd], direction);
+  if (rawEntry === null) return null;
+  const distanceAtr = Math.abs(price - rawEntry) / a30;
+  const rawStop = stopFromAtr(direction, rawEntry, a60, a30);
+  if (!(rawEntry > 0 && rawStop > 0)) return null;
+  const rawTarget = structuralTarget(direction, rawEntry, rawStop, daily);
+  if (rawTarget === null || rawTarget <= 0) return null;
+  // Replay uses the same decimal rounding and post-rounding R:R as the live scanner.
+  // This still does not model instrument tickSize, spread, or the live ticker price.
+  const levels = roundedPlanLevels(direction, rawEntry, rawStop, rawTarget);
+  if (!levels || levels.rr < 0.5) return null;
+  const { entry, stop, target, rr } = levels;
   const quality = evaluateScenarioQuality({
     direction4h, direction1h, direction30m, relativeVolume, change24h: change,
     turnover24h, rewardRisk: rr, distanceAtr,
@@ -158,6 +161,7 @@ export function replayMultiTimeframeStrategy(
   const assumptions = [
     "Walk-forward 30m/1h/4h/1D: кожне рішення використовує лише повністю закриті свічки.",
     "Правила EMA20/50, підтверджених swing-рівнів, ATR і перевірок готовності; історичний 24h оборот — сума годинних turnover Bybit.",
+    "Entry/SL/TP округлюються за спільною десятковою схемою сканера, після цього повторно перевіряється R:R. Це ще не tickSize конкретного контракту.",
     "Limit діє до 6 годин, після входу позиція утримується максимум 48 годин; одночасно одна позиція.",
     "Комісія 0.055% за вхід і вихід; без funding, проскальзування і біржової черги виконання.",
     "Якщо стоп і ціль торкнуті в одній свічці, пріоритет має Stop Loss. Заповнення Limit за OHLC моделюється, не гарантоване.",
