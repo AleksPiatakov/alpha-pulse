@@ -1,65 +1,18 @@
 import { DEMO_BYBIT_URL, roundPrice, type PlanDirection, type TradePlan } from "@/lib/trading";
 import { evaluateScenarioQuality } from "@/lib/scenario-quality";
+import { emaValues as ema, atrBars, trendBars, nearestSwingLevel, nearestAcrossTimeframes, stopFromAtr, structuralTarget, rewardRisk, type PriceBar } from "./technical-plan-core.ts";
 
 type Ticker = { symbol: string; lastPrice: string; price24hPcnt: string; turnover24h: string };
 type Candle = [string, string, string, string, string, string];
 type Interval = "30" | "60" | "240" | "D";
 
-function ema(values: number[], period: number) {
-  if (values.length < period) return NaN;
-  const alpha = 2 / (period + 1);
-  let average = values.slice(0, period).reduce((sum, n) => sum + n, 0) / period;
-  for (const price of values.slice(period)) average += alpha * (price - average);
-  return average;
+function asBars(candles: Candle[]): PriceBar[] {
+  return candles.map((bar) => ({ high: Number(bar[2]), low: Number(bar[3]), close: Number(bar[4]) }));
 }
-
-function atr(candles: Candle[]) {
-  const recent = candles.slice(-15);
-  if (recent.length !== 15) return NaN;
-  const ranges = recent.slice(1).map((bar, i) => {
-    const high = Number(bar[2]), low = Number(bar[3]), previous = Number(recent[i][4]);
-    return Math.max(high - low, Math.abs(high - previous), Math.abs(low - previous));
-  });
-  return ranges.reduce((sum, n) => sum + n, 0) / ranges.length;
-}
-
-function trend(candles: Candle[]): PlanDirection | null {
-  const closes = candles.map((candle) => Number(candle[4]));
-  const fast = ema(closes, 20), slow = ema(closes, 50);
-  if (closes.at(-1)! > fast && fast > slow) return "LONG";
-  if (closes.at(-1)! < fast && fast < slow) return "SHORT";
-  return null;
-}
-
-function structuralTarget(direction: PlanDirection, entry: number, stopLoss: number, daily: Candle[]) {
-  const distance = Math.abs(entry - stopLoss);
-  const ideal = direction === "LONG" ? entry + 2.4 * distance : entry - 2.4 * distance;
-  const candidates: number[] = [];
-  // A daily swing pivot requires two completed candles to the left and right.
-  for (let i = 2; i < daily.length - 2; i++) {
-    const middle = Number(daily[i][direction === "LONG" ? 2 : 3]);
-    const others = [i - 2, i - 1, i + 1, i + 2].map((j) => Number(daily[j][direction === "LONG" ? 2 : 3]));
-    const confirmed = direction === "LONG" ? others.every((value) => middle > value) : others.every((value) => middle < value);
-    if (confirmed && (direction === "LONG" ? middle > entry : middle < entry)) candidates.push(middle);
-  }
-  // No confirmed obstacle: do not claim that the whole route is clear.
-  if (!candidates.length) return null;
-  const nearest = direction === "LONG" ? Math.min(...candidates) : Math.max(...candidates);
-  const buffered = nearest + (direction === "LONG" ? -0.05 : 0.05) * distance;
-  return direction === "LONG" ? Math.min(ideal, buffered) : Math.max(ideal, buffered);
-}
-
-function nearestConfirmedLevel(candles: Candle[], direction: PlanDirection, marketPrice: number): number | null {
-  const levels: number[] = [];
-  // A local swing on completed candles is a candidate support/resistance, not a guaranteed turning point.
-  const side = direction === "LONG" ? 3 : 2;
-  for (let i = 2; i < candles.length - 2; i++) {
-    const level = Number(candles[i][side]);
-    const nearby = [i - 2, i - 1, i + 1, i + 2].map((j) => Number(candles[j][side]));
-    if (nearby.every((n) => direction === "LONG" ? level < n : level > n) &&
-        (direction === "LONG" ? level < marketPrice : level > marketPrice)) levels.push(level);
-  }
-  return levels.length ? (direction === "LONG" ? Math.max(...levels) : Math.min(...levels)) : null;
+function atr(candles: Candle[]) { return atrBars(asBars(candles)); }
+function trend(candles: Candle[]): PlanDirection | null { return trendBars(asBars(candles)); }
+function nearestConfirmedLevel(candles: Candle[], direction: PlanDirection, price: number): number | null {
+  return nearestSwingLevel(asBars(candles), direction, price);
 }
 
 async function candlesFor(symbol: string, interval: Interval) {
@@ -91,20 +44,18 @@ async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null):
   const pivotLevels = [candles30, candles1h, candles4h, dailyCandles]
     .map((candles) => nearestConfirmedLevel(candles, direction, price))
     .filter((level): level is number => level !== null);
-  const pivot = pivotLevels.length
-    ? (direction === "LONG" ? Math.max(...pivotLevels) : Math.min(...pivotLevels))
-    : null;
+  const pivot = nearestAcrossTimeframes(pivotLevels, direction);
   const entry = pivot ?? (direction === "LONG"
     ? Math.min(entryEma30m, price - volatility30m * .25)
     : Math.max(entryEma30m, price + volatility30m * .25));
   const entryDistanceAtr = Math.abs(price - entry) / volatility30m;
   if (!Number.isFinite(entryDistanceAtr) || entryDistanceAtr > 20) return reject("distance");
   const zoneHalfWidth = volatility30m * .45;
-  const risk = Math.max(volatility1h * 1.25, volatility30m * 2);
-  const stopLoss = direction === "LONG" ? entry - risk : entry + risk;
+  const stopLoss = stopFromAtr(direction, entry, volatility1h, volatility30m);
+  const risk = Math.abs(entry - stopLoss);
   if (!(entry > 0 && stopLoss > 0 && Number.isFinite(entry) && Number.isFinite(stopLoss))) return reject("prices");
   const rawTakeProfit2 = direction === "LONG" ? entry + risk * 2.4 : entry - risk * 2.4;
-  const structural = structuralTarget(direction, entry, stopLoss, dailyCandles);
+  const structural = structuralTarget(direction, entry, stopLoss, asBars(dailyCandles));
   const hasDailyTarget = structural !== null;
   const takeProfit2 = structural === null ? rawTakeProfit2
     : direction === "LONG" ? Math.min(rawTakeProfit2, structural) : Math.max(rawTakeProfit2, structural);
@@ -112,10 +63,7 @@ async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null):
   const roundedStop = roundPrice(stopLoss);
   const roundedTarget = roundPrice(takeProfit2);
   if (!(roundedTarget > 0 && Number.isFinite(roundedTarget))) return reject("prices");
-  const actualRisk = Math.abs(entryPrice - roundedStop);
-  const actualReward = direction === "LONG" ? roundedTarget - entryPrice : entryPrice - roundedTarget;
-  if (!(actualRisk > 0 && actualReward > 0)) return reject("reward_risk");
-  const actualRR = actualReward / actualRisk;
+  const actualRR = rewardRisk(direction, entryPrice, roundedStop, roundedTarget);
   if (!Number.isFinite(actualRR) || actualRR < 0.5) return reject("reward_risk");
   const h1Pivot = nearestConfirmedLevel(candles1h, direction, price);
   const h4Pivot = nearestConfirmedLevel(candles4h, direction, price);
