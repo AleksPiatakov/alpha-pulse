@@ -9,6 +9,7 @@ export interface TradePlan {
   id: string; symbol: string; direction: PlanDirection; score: number; currentPrice: number;
   entryPrice: number; entryLow: number; entryHigh: number; stopLoss: number;
   takeProfit1: number; takeProfit2: number; riskReward: number; expiresAt: string;
+  featureSource?: "closed-1h-candles";
   observation?: { observedAt: number; last30mClose: number | null; last1hClose: number | null; last4hClose: number | null; lastDailyClose: number | null };
   readiness?: { met: number; total: number; missing: string[] };
   qualityGate?: { passed: boolean; reasons: string[]; policy: "intraday-quality-v1"; stopAtr: number | null; rewardRisk: number | null };
