@@ -75,7 +75,7 @@ export default function MarketScanner() {
               <span className={`rounded-full px-2 py-1 text-xs font-bold ${isLong ? "bg-emerald-950 text-emerald-300" : "bg-rose-950 text-rose-300"}`}>{plan.direction}</span>
             </div>
             <div className="mb-3 flex items-end justify-between border-b border-slate-800 pb-3">
-              <p className={`text-sm font-bold ${rank?.accent ?? "text-slate-300"}`}>Score {plan.score}/100</p>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1"><p className={`text-sm font-bold ${rank?.accent ?? "text-slate-300"}`}>Score {plan.score}/100</p><p className="text-xs font-semibold text-emerald-300">R:R 1:{plan.riskReward.toFixed(2)}</p></div>
               <p className="text-xs text-slate-400">Ціна зараз: <b className="text-slate-200">{price(plan.currentPrice)}</b></p>
             </div>
             <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
