@@ -117,6 +117,7 @@ const MAX_VISIBLE = 100;
 const seenPlans = new Map<string, { plan: TradePlan; checkedAt: number }>();
 const visited = new Set<string>();
 let scanCursor = 0;
+let completedSweeps = 0;
 let latestScan: { until: number; value: ScanResult } | undefined;
 let activeScan: Promise<ScanResult> | undefined;
 const SCAN_INTERVAL = 20_000;
@@ -130,7 +131,7 @@ export type ScanResult = {
   covered: number;
   category: "linear";
   universePages: number; universeInstruments: number; unsupportedInstruments: number;
-  coveragePercent: number; cycleCompleted: boolean;
+  coveragePercent: number; cycleCompleted: boolean; completedSweeps: number;
   rejectionCounts: Record<FilterReason, number>;
 };
 
@@ -149,6 +150,7 @@ async function doScan(): Promise<ScanResult> {
   for (const symbol of seenPlans.keys()) if (!universe.has(symbol)) seenPlans.delete(symbol);
   for (const symbol of visited) if (!universe.has(symbol)) visited.delete(symbol);
   if (scanCursor >= eligible.length) scanCursor = 0;
+  if (scanCursor === 0) visited.clear(); // Coverage always means this sweep, not all historical visits.
   const batch = eligible.slice(scanCursor, scanCursor + CYCLE_BATCH);
   scanCursor = (scanCursor + batch.length) % Math.max(eligible.length, 1);
   const rejectionCounts: Record<FilterReason, number> = {
@@ -192,12 +194,13 @@ async function doScan(): Promise<ScanResult> {
   })
     .sort((a, b) => (a.status === "ACTIVE" ? -1 : 1) - (b.status === "ACTIVE" ? -1 : 1) || b.score - a.score || b.riskReward - a.riskReward || a.symbol.localeCompare(b.symbol))
     .slice(0, MAX_VISIBLE);
+  if (visited.size === eligible.length) completedSweeps++;
   return { plans, scanned: data.result.list.length, eligible: eligible.length,
     analyzed: batch.length, covered: visited.size, category: "linear",
     universePages: registry.pages, universeInstruments: registry.eligibleSymbols.size,
     unsupportedInstruments: registry.rejectedUnsupported + registry.rejectedNonTrading,
     coveragePercent: Number((100 * visited.size / eligible.length).toFixed(1)),
-    cycleCompleted: visited.size === eligible.length,
+    cycleCompleted: visited.size === eligible.length, completedSweeps,
     rejectionCounts };
 }
 
