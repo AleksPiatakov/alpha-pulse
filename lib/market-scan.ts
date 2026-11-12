@@ -1,6 +1,6 @@
 import { DEMO_BYBIT_URL, roundPrice, type PlanDirection, type TradePlan } from "@/lib/trading";
 import { evaluateScenarioQuality } from "@/lib/scenario-quality";
-import { emaValues as ema, atrBars, trendBars, nearestSwingLevel, nearestAcrossTimeframes, stopFromAtr, structuralTarget, rewardRisk, type PriceBar } from "./technical-plan-core.ts";
+import { emaValues as ema, atrBars, trendBars, nearestSwingLevel, nearestAcrossTimeframes, stopFromAtr, structuralTarget, rewardRisk, isCompletedBar, type PriceBar } from "./technical-plan-core.ts";
 
 type Ticker = { symbol: string; lastPrice: string; price24hPcnt: string; turnover24h: string };
 type Candle = [string, string, string, string, string, string];
@@ -22,7 +22,7 @@ async function candlesFor(symbol: string, interval: Interval) {
   if (data.retCode !== 0 || !data.result?.list) return null;
   const intervalMs = interval === "D" ? 86_400_000 : Number(interval) * 60_000;
   const closed = [...data.result.list].reverse().filter((c) =>
-    Number(c[0]) + intervalMs <= Date.now() &&
+    isCompletedBar(Number(c[0]), intervalMs, Date.now()) &&
     [c[2], c[3], c[4], c[5]].every((n) => Number.isFinite(Number(n))));
   return closed.length >= 60 ? closed : null;
 }
