@@ -70,6 +70,7 @@ async function makePlan(ticker: Ticker): Promise<TradePlan | null> {
   const direction = direction1h;
   const volatility1h = atr(candles1h), volatility30m = atr(candles30);
   const averageVolume = candles1h.slice(-31, -1).reduce((sum, candle) => sum + Number(candle[5]), 0) / 30;
+  if (averageVolume <= 0) return null;
   const relativeVolume = Number(candles1h.at(-1)?.[5] ?? 0) / averageVolume;
   const entryEma30m = ema(candles30.map((candle) => Number(candle[4])), 20);
   if (!Number.isFinite(volatility1h) || volatility1h <= 0 || !Number.isFinite(volatility30m) || volatility30m <= 0 || !Number.isFinite(relativeVolume) || relativeVolume < 0.65) return null;
@@ -80,6 +81,7 @@ async function makePlan(ticker: Ticker): Promise<TradePlan | null> {
   const zoneHalfWidth = volatility30m * .45;
   const risk = Math.max(volatility1h * 1.25, volatility30m * 2);
   const stopLoss = direction === "LONG" ? entry - risk : entry + risk;
+  if (!(entry > 0 && stopLoss > 0 && Number.isFinite(entry) && Number.isFinite(stopLoss))) return null;
   const rawTakeProfit2 = direction === "LONG" ? entry + risk * 2.4 : entry - risk * 2.4;
   const structural = structuralTarget(direction, entry, stopLoss, dailyCandles);
   if (structural === null) return null;
@@ -87,6 +89,7 @@ async function makePlan(ticker: Ticker): Promise<TradePlan | null> {
   const entryPrice = roundPrice(entry);
   const roundedStop = roundPrice(stopLoss);
   const roundedTarget = roundPrice(takeProfit2);
+  if (!(roundedTarget > 0 && Number.isFinite(roundedTarget))) return null;
   const actualRisk = Math.abs(entryPrice - roundedStop);
   const actualReward = direction === "LONG" ? roundedTarget - entryPrice : entryPrice - roundedTarget;
   if (!(actualRisk > 0 && actualReward > 0)) return null;
