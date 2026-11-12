@@ -18,7 +18,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  if (!isDemoTradingEnabled()) return error("Виставлення заявок вимкнене. Увімкніть лише Demo-режим через BYBIT_ENV=demo і BYBIT_TRADING_ENABLED=true.", 403);
+  if (!isDemoTradingEnabled()) return error("Виставлення заявок доступне лише за BYBIT_ENV=demo.", 403);
   try {
     const body = await request.json() as Record<string, unknown>;
     const symbol = typeof body.symbol === "string" ? body.symbol.toUpperCase() : "";
@@ -30,10 +30,10 @@ export async function POST(request: Request) {
     if (!planId) return error("Не передано ідентифікатор плану. Оновіть сторінку.", 409);
 
     // The browser cannot authorize prices, stop/target levels or risk on its own.
-    // Rebuild the current top plans on the server immediately before the order.
+    // Recalculate this exact Bybit symbol independently, including REVIEW limit setups.
     const verified = await verifyCurrentTechnicalPlan(symbol);
     const plan = verified?.id === planId ? verified : null;
-    if (!plan || plan.status !== "ACTIVE" || new Date(plan.expiresAt).getTime() <= Date.now()) {
+    if (!plan || plan.status === "INVALID" || new Date(plan.expiresAt).getTime() <= Date.now()) {
       return error("Торговий план застарів або більше не входить до актуального відбору.", 409);
     }
     const same = (a: number, b: number) => Math.abs(a - b) <= Math.max(1e-8, Math.abs(b) * 1e-9);
@@ -41,7 +41,7 @@ export async function POST(request: Request) {
         !same(price, plan.entryPrice) ||
         !same(stopLoss, plan.stopLoss) ||
         !same(takeProfit, plan.takeProfit2) ||
-        plan.riskReward < 1.5) {
+        plan.riskReward < 0.5) {
       return error("Дані заявки не відповідають поточному серверному плану. Оновіть сторінку.", 409);
     }
 
