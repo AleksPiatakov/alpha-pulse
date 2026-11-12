@@ -7,7 +7,7 @@ import type { TradePlan } from "@/lib/trading";
 import { calculatePosition, defaultRiskSettings, normalizeRiskSettings, RISK_SETTINGS_KEY, type RiskSettings } from "@/lib/risk-settings";
 import { TradingChart } from "@/app/components/TradingChart";
 
-type AccountSnapshot = { balance: number; activeCount: number; source: string };
+type AccountSnapshot = { balance: number; availableBalance: number | null; activeCount: number; source: string };
 type ScanResponse = { success?: boolean; plans?: TradePlan[]; error?: string };
 type BacktestData = { success: boolean; mode?: string; filled?: number; signals?: number; unfilled?: number;
   wins?: number; winRate?: number | null; totalNetR?: number; averageNetR?: number | null;
@@ -59,9 +59,9 @@ function TradePageContent() {
     void (async () => {
       try {
         const response = await fetch("/api/account", { cache: "no-store" });
-        const data = await response.json() as { success?: boolean; balance?: number; activeCount?: number; source?: string; error?: string };
+        const data = await response.json() as { success?: boolean; balance?: number; availableBalance?: number | null; activeCount?: number; source?: string; error?: string };
         if (!response.ok || !data.success) throw new Error(data.error || "Demo-баланс недоступний.");
-        if (active) { setAccount({ balance: data.balance ?? 0, activeCount: data.activeCount ?? 0, source: data.source ?? "bybit-demo" }); setAccountError(undefined); }
+        if (active) { setAccount({ balance: data.balance ?? 0, availableBalance: data.availableBalance ?? null, activeCount: data.activeCount ?? 0, source: data.source ?? "bybit-demo" }); setAccountError(undefined); }
       } catch (caught) { if (active) setAccountError(caught instanceof Error ? caught.message : "Demo-баланс недоступний."); }
     })();
     return () => { active = false; };
@@ -86,7 +86,7 @@ function TradePageContent() {
   }, [symbol]);
 
   const balance = account?.balance && account.balance > 0 ? account.balance : settings.fallbackBalance;
-  const sizing = useMemo(() => !plan ? undefined : calculatePosition({ balance, activeCount: account?.activeCount ?? 0, settings, entryPrice: plan.entryPrice, stopLoss: plan.stopLoss, takeProfit: plan.takeProfit2 }), [account?.activeCount, balance, plan, settings]);
+  const sizing = useMemo(() => !plan ? undefined : calculatePosition({ balance, activeCount: account?.activeCount ?? 0, settings, entryPrice: plan.entryPrice, stopLoss: plan.stopLoss, takeProfit: plan.takeProfit2, availableBalance: account?.availableBalance ?? 0 }), [account?.activeCount, account?.availableBalance, balance, plan, settings]);
 
   async function placeOrder() {
     if (!plan || !sizing?.canOpen) return;
@@ -115,7 +115,7 @@ function TradePageContent() {
           <div className="space-y-5 p-5">
                         <dl className="grid grid-cols-2 gap-x-4 gap-y-4 text-sm"><Value label="Limit-вхід" value={price(plan.entryPrice)} color="text-cyan-300" /><Value label="Зона" value={`${price(plan.entryLow)}–${price(plan.entryHigh)}`} /><Value label="Stop-loss" value={price(plan.stopLoss)} color="text-rose-300" /><Value label="Take-profit" value={price(plan.takeProfit2)} color="text-emerald-300" /><Value label="Risk / Reward" value={`1:${plan.riskReward}`} /><Value label="Поточна ціна" value={price(plan.currentPrice)} /></dl>
             <p className={`rounded-lg px-3 py-2 text-xs ${analysisState === "current" ? "bg-emerald-950/40 text-emerald-100" : "bg-amber-950/40 text-amber-100"}`}>{plan.status === "REVIEW" ? "Попередній Limit-сценарій. Можна випробувати Demo-заявку; сервер повторно перевірить рівні й ризик." : analysisState === "current" ? "Рівні та розрахунок оновлюються автоматично." : analysisState === "not-recommended" ? "Сценарій не в поточному рейтингу. Перед Demo-заявкою сервер перевірить пару повторно." : "Автоаналіз недоступний. Сервер перевірить пару перед Demo-заявкою."}</p>
-            <div className="grid grid-cols-2 gap-3 border-y border-slate-800 py-4 text-sm"><Stat label="Ризик" value={money(sizing?.allowedRisk ?? 0)} accent="text-rose-300" /><Stat label="Обсяг" value={(sizing?.quantity ?? 0).toLocaleString(undefined, { maximumFractionDigits: 5 })} /><Stat label="Номінал" value={money(sizing?.notional ?? 0)} accent="text-cyan-300" /><Stat label="Вільні слоти" value={`${sizing?.slotsRemaining ?? 0}/${settings.maxPositions}`} /></div>
+            <div className="grid grid-cols-2 gap-3 border-y border-slate-800 py-4 text-sm"><Stat label="Ризик" value={money(sizing?.actualRisk ?? 0)} accent="text-rose-300" /><Stat label="Обсяг" value={(sizing?.quantity ?? 0).toLocaleString(undefined, { maximumFractionDigits: 5 })} /><Stat label="Номінал" value={money(sizing?.notional ?? 0)} accent="text-cyan-300" /><Stat label="Вільні слоти" value={`${sizing?.slotsRemaining ?? 0}/${settings.maxPositions}`} /></div>
             <details className="group rounded-lg bg-slate-950/70 p-3"><summary className="cursor-pointer text-xs font-semibold text-slate-300">Логіка та умова скасування</summary><div className="mt-3 space-y-3"><div className="flex flex-wrap gap-1.5">{plan.reasons.map((reason) => <span key={reason} className="rounded bg-slate-800 px-2 py-1 text-[11px] text-slate-300">{reason}</span>)}</div><p className="text-xs leading-relaxed text-amber-100">Скасувати: {plan.invalidation}</p></div></details>
             <details className="rounded-lg bg-slate-950/70 p-3">
               <summary className="cursor-pointer text-xs font-semibold text-slate-300">Історичний тест 30m / 1h / 4h / 1D</summary>
@@ -134,7 +134,8 @@ function TradePageContent() {
               </div>}
             </details>
             {accountError && <p className="text-xs text-amber-200">Bybit: {accountError}</p>}
-            {!sizing?.canOpen && <p className="rounded-lg border border-amber-900 bg-amber-950/30 p-3 text-xs text-amber-100">Досягнуто ліміту позицій або сумарного ризику.</p>}
+            {sizing?.cappedByMargin && <p className="text-xs text-amber-200">Обсяг обмежено доступною маржею Bybit без припущення про плече.</p>}
+            {!sizing?.canOpen && <p className="rounded-lg border border-amber-900 bg-amber-950/30 p-3 text-xs text-amber-100">Недостатньо перевіреної маржі або досягнуто ліміту позицій чи ризику.</p>}
             <p className="text-xs leading-relaxed text-slate-500">GTC Limit на {price(plan.entryPrice)} · не виконується по Market.</p>
             <button disabled={busy || !sizing?.canOpen} onClick={() => void placeOrder()} className={`w-full rounded-lg px-4 py-3 font-bold text-slate-950 transition disabled:cursor-not-allowed disabled:opacity-50 ${isLong ? "bg-emerald-500 hover:bg-emerald-400" : "bg-rose-500 hover:bg-rose-400"}`}>{busy ? "Постановка…" : `Поставити ${plan.direction} Demo Limit`}</button>
             {message && <p className="rounded-lg border border-slate-700 p-3 text-sm">{message}</p>}
