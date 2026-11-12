@@ -24,7 +24,7 @@ type VariantStats = {
   totalNetR: number; averageNetR: number | null; winRate: number | null;
   maxDrawdownR: number; periods: PeriodStats[]; trades?: unknown[];
 };
-type ExperimentResult = TestResult & { experiments?: VariantStats[] };
+type ExperimentResult = TestResult & { experiments?: VariantStats[]; conservativeExperiments?: VariantStats[] };
 type ResultMap = Partial<Record<SymbolName, TestResult>>;
 
 const number = (value: number | null | undefined, digits = 2) =>
@@ -53,7 +53,7 @@ export default function BacktestComparisonPage() {
     // Only public-market research results. No account data, credentials or API keys.
     const payload = {
       kind: "alpha-pulse-backtest",
-      version: 3,
+      version: 4,
       exportedAt: new Date().toISOString(),
       symbols: [...SYMBOLS],
       timeframe: ["30m", "1h", "4h", "1D"],
@@ -62,9 +62,11 @@ export default function BacktestComparisonPage() {
       exportCompleteness: "full-baseline-and-variant-trade-journals",
       candleSnapshotHashes: Object.fromEntries(SYMBOLS.map((symbol) => [symbol, results[symbol]?.snapshotSha256 ?? null])),
       snapshotStorage: "local-immutable-file",
+      conservativeModel: { entryPenetrationTicks: 1, feePerSide: 0.00075, stopSlippageBps: 10, timeoutSlippageBps: 5 },
       note: "Дослідницький close-only тест з фіксованим кінцем історії та біржовим tickSize. Робочий Demo-сканер не використовує цю саму цінову модель; це не незалежне підтвердження прибутковості.",
       results: Object.fromEntries(SYMBOLS.map((symbol) => [symbol, results[symbol] ?? null])),
       experiments: Object.fromEntries(SYMBOLS.map((symbol) => [symbol, experimentResults[symbol]?.experiments ?? null])),
+      conservativeExperiments: Object.fromEntries(SYMBOLS.map((symbol) => [symbol, experimentResults[symbol]?.conservativeExperiments ?? null])),
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -136,9 +138,24 @@ export default function BacktestComparisonPage() {
       <p className="mb-5 text-xs text-slate-400">
         8 пар Bybit · 30m / 1h / 4h / 1D · кінець історії: 12.11.2026, 00:00 UTC · округлення за tickSize.
         Результати — історична модель, не прогноз прибутку. Кожна пара перевіряється окремо.
-        Перший запуск зберігає свічки локально; наступні запуски використовують ті самі файли. Контрольні SHA-256 і повні журнали угод включено в JSON. Це дослідницька вибірка, не незалежний holdout.
+        Перший запуск зберігає свічки локально; наступні запуски використовують ті самі файли. Тепер обчислюються базові та консервативні результати (1 tick проникнення, 0,075% комісії на бік, проскальзування Stop Loss 10 bps). Повні журнали обох моделей включено в JSON. Це дослідницька вибірка, не незалежний holdout.
       </p>
       <p className="mb-3 text-xs text-amber-200">Важливо: історичний тест використовує ціну закриття 30m, а робочий сканер — поточний тікер; 24h показники й спосіб округлення у сканері відрізняються. TickSize з Bybit застосовано лише в дослідницькому тесті, не в Demo-заявках.</p>
+      <div className="mb-4 overflow-x-auto rounded-xl border border-slate-800 bg-slate-900/60 p-3">
+        <p className="mb-2 text-sm font-semibold">Стрес-тест виконання заявок (гіпотетична модель)</p>
+        <table className="w-full min-w-[600px] text-left text-xs">
+          <thead><tr className="text-slate-400"><th className="pb-2">Пара</th><th>Базові угоди</th><th>Базова сума R</th><th>Консервативні угоди</th><th>Консервативна сума R</th></tr></thead>
+          <tbody>{SYMBOLS.map((symbol) => {
+            const base = experimentResults[symbol]?.experiments?.find((item) => item.key === "baseline");
+            const conservative = experimentResults[symbol]?.conservativeExperiments?.find((item) => item.key === "baseline");
+            return <tr key={symbol} className="border-t border-slate-800"><td className="py-2">{symbol}</td>
+              <td>{base?.filled ?? "—"}</td><td>{number(base?.totalNetR)}</td>
+              <td>{conservative?.filled ?? "—"}</td>
+              <td className={(conservative?.totalNetR ?? 0) < 0 ? "text-rose-300" : "text-emerald-300"}>{number(conservative?.totalNetR)}</td>
+            </tr>;
+          })}</tbody>
+        </table>
+      </div>
       <p className="mb-3 text-xs text-slate-400">Для передачі результатів у ChatGPT натисни «Експорт JSON» і прикріпи отриманий файл до чату — скриншоти не потрібні. Свічки зберігаються лише локально у .alpha-pulse-backtest-snapshots/ (не завантажуються в GitHub).</p>
       <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-900/70">
         <table className="w-full min-w-[790px] text-left text-sm">
