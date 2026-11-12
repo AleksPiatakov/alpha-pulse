@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { serverEnv } from "@/lib/server-env";
+import { roundPlanPrice } from "./technical-plan-core.ts";
 
 export const DEMO_BYBIT_URL = "https://api-demo.bybit.com";
 export const PUBLIC_BYBIT_URL = "https://api.bybit.com";
@@ -26,4 +27,4 @@ export async function bybitDemoRequest<T>(path: string, method: "GET" | "POST", 
   if (!response.ok || data.retCode !== 0) throw new Error(data.retMsg || "Bybit API повернув помилку.");
   return data;
 }
-export function roundPrice(value: number) { return Number(value.toFixed(value >= 1000 ? 1 : value >= 1 ? 3 : value >= 0.01 ? 5 : 8)); }
+export const roundPrice = roundPlanPrice;
