@@ -1,8 +1,7 @@
 import { DEMO_BYBIT_URL, roundPrice, type PlanDirection, type TradePlan } from "@/lib/trading";
-import { evaluateScenarioQuality } from "@/lib/scenario-quality";
-import { evaluateIntradayPlan } from "./intraday-quality.ts";
+import { calculatePlanningLevels, assessPlanningLevels } from "./trade-planning-engine.ts";
 import { fetchLinearUniverse, matchUniverseTickers, type UniverseResult } from "./bybit-universe.ts";
-import { emaValues as ema, atrBars, trendBars, nearestSwingLevel, nearestAcrossTimeframes, stopFromAtr, structuralTarget, rewardRisk, isCompletedBar, type PriceBar } from "./technical-plan-core.ts";
+import { emaValues as ema, atrBars, trendBars, nearestSwingLevel, isCompletedBar, type PriceBar } from "./technical-plan-core.ts";
 
 type Ticker = { symbol: string; lastPrice: string; price24hPcnt: string; turnover24h: string };
 type Candle = [string, string, string, string, string, string];
@@ -44,44 +43,33 @@ async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null):
   const entryEma30m = ema(candles30.map((candle) => Number(candle[4])), 20);
   if (!Number.isFinite(volatility1h) || volatility1h <= 0 || !Number.isFinite(volatility30m) || volatility30m <= 0 || !Number.isFinite(relativeVolume)) return reject("volume");
   const pivotLevels = [candles30, candles1h, candles4h, dailyCandles]
-    .map((candles) => nearestConfirmedLevel(candles, direction, price))
-    .filter((level): level is number => level !== null);
-  const pivot = nearestAcrossTimeframes(pivotLevels, direction);
-  const entry = pivot ?? (direction === "LONG"
-    ? Math.min(entryEma30m, price - volatility30m * .25)
-    : Math.max(entryEma30m, price + volatility30m * .25));
-  const entryDistanceAtr = Math.abs(price - entry) / volatility30m;
-  if (!Number.isFinite(entryDistanceAtr) || entryDistanceAtr > 20) return reject("distance");
+    .map((candles) => nearestConfirmedLevel(candles, direction, price));
   const zoneHalfWidth = volatility30m * .45;
-  const stopLoss = stopFromAtr(direction, entry, volatility1h, volatility30m);
-  const risk = Math.abs(entry - stopLoss);
-  if (!(entry > 0 && stopLoss > 0 && Number.isFinite(entry) && Number.isFinite(stopLoss))) return reject("prices");
-  const rawTakeProfit2 = direction === "LONG" ? entry + risk * 2.4 : entry - risk * 2.4;
-  const structural = structuralTarget(direction, entry, stopLoss, asBars(dailyCandles));
-  const hasDailyTarget = structural !== null;
-  const takeProfit2 = structural === null ? rawTakeProfit2
-    : direction === "LONG" ? Math.min(rawTakeProfit2, structural) : Math.max(rawTakeProfit2, structural);
-  const entryPrice = roundPrice(entry);
-  const roundedStop = roundPrice(stopLoss);
-  const roundedTarget = roundPrice(takeProfit2);
-  if (!(roundedTarget > 0 && Number.isFinite(roundedTarget))) return reject("prices");
-  const actualRR = rewardRisk(direction, entryPrice, roundedStop, roundedTarget);
-  if (!Number.isFinite(actualRR) || actualRR < 0.5) return reject("reward_risk");
+  const entryFallback = direction === "LONG"
+    ? Math.min(entryEma30m, price - volatility30m * .25)
+    : Math.max(entryEma30m, price + volatility30m * .25);
+  const levels = calculatePlanningLevels({
+    direction, currentPrice: price, atr30m: volatility30m, atr1h: volatility1h,
+    supportLevels: pivotLevels, dailyBars: asBars(dailyCandles), fallbackEntry: entryFallback,
+  });
+  if (!levels) return reject("prices");
+  const { entry: entryPrice, stop: roundedStop, target: roundedTarget, rewardRisk: actualRR } = levels;
+  const entry = entryPrice, entryDistanceAtr = levels.distanceAtr;
+  if (entryDistanceAtr > 20) return reject("distance");
+  if (actualRR < 0.5) return reject("reward_risk");
+  const hasDailyTarget = levels.confirmedTarget;
   const h1Pivot = nearestConfirmedLevel(candles1h, direction, price);
   const h4Pivot = nearestConfirmedLevel(candles4h, direction, price);
   const dPivot = nearestConfirmedLevel(dailyCandles, direction, price);
-  const quality = evaluateScenarioQuality({
-    direction4h, direction1h, direction30m,
-    relativeVolume, change24h: change, turnover24h: Number(ticker.turnover24h),
-    rewardRisk: actualRR, distanceAtr: entryDistanceAtr,
-    pivot1h: h1Pivot !== null, pivot4h: h4Pivot !== null,
-    pivotDaily: dPivot !== null, hasTargetLevel: hasDailyTarget,
+  const { scenario: quality, gate } = assessPlanningLevels({
+    direction, levels, atr30m: volatility30m,
+    quality: {
+      direction4h, direction1h, direction30m, relativeVolume,
+      change24h: change, turnover24h: Number(ticker.turnover24h),
+      pivot1h: h1Pivot !== null, pivot4h: h4Pivot !== null, pivotDaily: dPivot !== null,
+    },
   });
   const { score } = quality;
-  // Quality assessment remains explicitly exploratory, separate from MTF readiness.
-  const gate = evaluateIntradayPlan({ direction, entry: entryPrice, stop: roundedStop,
-    target: roundedTarget, atr30m: volatility30m, distanceAtr: entryDistanceAtr,
-    score, readiness: quality.confirmedConditions, rewardRisk: actualRR });
   const caution = quality.status === "ACTIVE" ? "Навіть узгоджені технічні умови не гарантують виконання Limit-заявки або прибутку." : `Непідтверджено: ${quality.checks.slice(0, 2).join("; ") || "потрібна повторна перевірка"}.`;
   return {
     id: `${ticker.symbol}-${direction}-${Math.round(entry * 1e6)}`,
