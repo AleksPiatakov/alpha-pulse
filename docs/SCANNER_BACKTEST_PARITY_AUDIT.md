@@ -19,6 +19,14 @@ Status: **NOT EQUIVALENT**. This is a source-code audit, not independent reprodu
 
 **Parity is still partial.** The unified price-bar mathematics does not unify observed ticker price, 24h statistics, Demo/public feed, decimal rounding or timing. Historical performance must still be described as a close-only proxy, not an exact live-scanner audit. No production trading rules or Demo order permissions were changed.
 
+## Experimental backtest precision & reproducibility (2026-11-12)
+
+- `/api/backtest?symbol=BTCUSDT&experiment=1&fixed=1&ticks=1` now runs the close-only proxy with a **pinned historical cutoff of 2026-11-12T00:00:00Z**, fetching backward from that timestamp rather than a moving current-time window. This makes comparisons less sensitive to a 30-minute rolling-window shift, but is **not a full immutable data snapshot**: the candle responses can still be revised by the source. Older data can eventually become unavailable.
+- Historical Entry/SL/TP use the **current Bybit linear instrument metadata `priceFilter.tickSize`** (validated and fail-closed if unavailable). It is not proof of the instrument's historical tickSize and not proof of a live-fill-exact strategy. R:R and price-side validity are retested after rounding.
+- The backtest API now returns **every baseline trade**, and every alternative replay includes its own complete trade journal. The page exports all these records in one JSON. This is larger than the former 30-trade tail.
+- The live scanner and order endpoint remain unchanged; the new tick-size setting is **experimental backtest-only**, not full production parity.
+- No new independent out-of-sample evidence is created by rerunning historical data with the same date.
+
 ## Material differences
 
 | Severity | Difference | Live scanner | Historical replay | Impact |
