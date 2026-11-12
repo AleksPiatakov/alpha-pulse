@@ -57,6 +57,7 @@ async function makePlan(ticker: Ticker): Promise<TradePlan | null> {
   const stopLoss = direction === "LONG" ? entry - risk : entry + risk;
   const rawTakeProfit2 = direction === "LONG" ? entry + risk * 2.4 : entry - risk * 2.4;
   const takeProfit2 = structuralTarget(direction, rawTakeProfit2, dailyCandles);
+  const entryPrice = roundPrice(entry);
   const roundedStop = roundPrice(stopLoss);
   const roundedTarget = roundPrice(takeProfit2);
   const actualRisk = Math.abs(entryPrice - roundedStop);
@@ -65,7 +66,6 @@ async function makePlan(ticker: Ticker): Promise<TradePlan | null> {
   const actualRR = actualReward / actualRisk;
   if (actualRR < 1.5) return null;
   const score = Math.min(95, Math.round(62 + Math.min(Math.abs(change) * 550, 14) + Math.min(relativeVolume * 5, 10) + 9));
-  const entryPrice = roundPrice(entry);
   const caution = relativeVolume >= 1.2 ? "Усі три таймфрейми узгоджені, але Limit-зона може не бути протестована." : "Напрямок узгоджений, але обсяг слабкий: не ставте заявку без повторної автооцінки.";
   return {
     id: `${ticker.symbol}-${direction}-${Math.round(entry * 1e6)}`,
