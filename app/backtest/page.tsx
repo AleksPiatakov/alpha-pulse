@@ -16,6 +16,7 @@ type TestResult = {
   periods?: PeriodStats[]; diagnostics?: Array<{ label: string; trades: number; wins: number; winRate: number | null; averageNetR: number | null; totalNetR: number; maxDrawdownR: number }>;
   warnings?: string[]; partialHistory?: boolean; error?: string;
   fixedComparison?: boolean; comparisonCutoff?: number; tickSize?: number | null; roundingMode?: string;
+  snapshotSha256?: string | null; snapshotCapturedAt?: string | null; snapshotStorage?: string;
   trades?: unknown[];
 };
 type VariantStats = {
@@ -52,13 +53,15 @@ export default function BacktestComparisonPage() {
     // Only public-market research results. No account data, credentials or API keys.
     const payload = {
       kind: "alpha-pulse-backtest",
-      version: 2,
+      version: 3,
       exportedAt: new Date().toISOString(),
       symbols: [...SYMBOLS],
       timeframe: ["30m", "1h", "4h", "1D"],
       comparisonEnd: "2026-11-12T00:00:00.000Z",
       roundingMode: "bybit-tick-size",
       exportCompleteness: "full-baseline-and-variant-trade-journals",
+      candleSnapshotHashes: Object.fromEntries(SYMBOLS.map((symbol) => [symbol, results[symbol]?.snapshotSha256 ?? null])),
+      snapshotStorage: "local-immutable-file",
       note: "Дослідницький close-only тест з фіксованим кінцем історії та біржовим tickSize. Робочий Demo-сканер не використовує цю саму цінову модель; це не незалежне підтвердження прибутковості.",
       results: Object.fromEntries(SYMBOLS.map((symbol) => [symbol, results[symbol] ?? null])),
       experiments: Object.fromEntries(SYMBOLS.map((symbol) => [symbol, experimentResults[symbol]?.experiments ?? null])),
@@ -85,7 +88,7 @@ export default function BacktestComparisonPage() {
       for (const symbol of SYMBOLS) {
         setCurrent(symbol);
         try {
-          const response = await fetch(`/api/backtest?symbol=${symbol}&experiment=1&fixed=1&ticks=1`, { cache: "no-store" });
+          const response = await fetch(`/api/backtest?symbol=${symbol}&experiment=1&fixed=1&ticks=1&snapshot=auto`, { cache: "no-store" });
           const data = await response.json() as ExperimentResult;
           if (!response.ok || !data.success) {
             const failed = { success: false, error: data.error || "Тест недоступний." };
@@ -133,10 +136,10 @@ export default function BacktestComparisonPage() {
       <p className="mb-5 text-xs text-slate-400">
         8 пар Bybit · 30m / 1h / 4h / 1D · кінець історії: 12.11.2026, 00:00 UTC · округлення за tickSize.
         Результати — історична модель, не прогноз прибутку. Кожна пара перевіряється окремо.
-        Одна кнопка запускає базовий тест, діагностику і 3 гіпотези. Повні журнали угод включено в JSON. Це дослідницька вибірка, не незалежний holdout.
+        Перший запуск зберігає свічки локально; наступні запуски використовують ті самі файли. Контрольні SHA-256 і повні журнали угод включено в JSON. Це дослідницька вибірка, не незалежний holdout.
       </p>
       <p className="mb-3 text-xs text-amber-200">Важливо: історичний тест використовує ціну закриття 30m, а робочий сканер — поточний тікер; 24h показники й спосіб округлення у сканері відрізняються. TickSize з Bybit застосовано лише в дослідницькому тесті, не в Demo-заявках.</p>
-      <p className="mb-3 text-xs text-slate-400">Для передачі результатів у ChatGPT натисни «Експорт JSON» і прикріпи отриманий файл до чату — скриншоти не потрібні.</p>
+      <p className="mb-3 text-xs text-slate-400">Для передачі результатів у ChatGPT натисни «Експорт JSON» і прикріпи отриманий файл до чату — скриншоти не потрібні. Свічки зберігаються лише локально у .alpha-pulse-backtest-snapshots/ (не завантажуються в GitHub).</p>
       <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-900/70">
         <table className="w-full min-w-[790px] text-left text-sm">
           <thead className="border-b border-slate-800 text-xs text-slate-400">
