@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { PUBLIC_BYBIT_URL } from "@/lib/trading";
+import { isCompletedBar } from "@/lib/technical-plan-core";
 import { replayMultiTimeframeStrategy, REPLAY_VARIANTS, type ReplayBar, type ReplayTimeframes } from "@/lib/mtf-backtest";
 
 const symbolPattern = /^[A-Z0-9]{3,24}USDT$/;
@@ -67,7 +68,7 @@ async function barsFor(symbol: string, interval: Interval, now: number): Promise
       const time = Number(c[0]);
       if (!Number.isFinite(time) || time < 0) continue;
       oldest = Math.min(oldest, time);
-      if (time + duration[interval] > now) continue;
+      if (!isCompletedBar(time, duration[interval], now)) continue;
       byTime.set(time, {
         time, open: Number(c[1]), high: Number(c[2]), low: Number(c[3]),
         close: Number(c[4]), volume: Number(c[5]), turnover: Number(c[6]),
