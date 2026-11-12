@@ -5,7 +5,15 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { TradePlan } from "@/lib/trading";
 
-type ScanResponse = { success: boolean; scanned?: number; eligible?: number; analyzed?: number; plans?: TradePlan[]; generatedAt?: string; error?: string };
+type RejectionCounts = Record<"candles" | "trend" | "volume" | "momentum" | "distance" | "prices" | "daily_level" | "reward_risk" | "error", number>;
+type ScanResponse = { success: boolean; scanned?: number; eligible?: number; analyzed?: number; plans?: TradePlan[]; rejectionCounts?: RejectionCounts; generatedAt?: string; error?: string };
+const rejectionLabels: Array<[keyof RejectionCounts, string]> = [
+  ["candles", "Недостатньо свічок"], ["trend", "Немає узгодженого тренду"],
+  ["volume", "Недостатній обсяг"], ["momentum", "Слабкий імпульс"],
+  ["distance", "Вхід занадто далеко"], ["daily_level", "Немає денного рівня"],
+  ["reward_risk", "Недостатній R:R"], ["prices", "Некоректні рівні"],
+  ["error", "Помилка отримання даних"],
+];
 const price = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 6 })}`;
 const rankStyles = [
   { label: "★ Top 1 · пріоритет", border: "border-emerald-400/80 shadow-emerald-500/10", badge: "bg-emerald-400 text-slate-950", accent: "text-emerald-300" },
@@ -18,6 +26,7 @@ export default function MarketScanner() {
   const [plans, setPlans] = useState<TradePlan[]>([]);
   const [counts, setCounts] = useState({ scanned: 0, eligible: 0, analyzed: 0 });
   const [updatedAt, setUpdatedAt] = useState<string>();
+  const [rejectionCounts, setRejectionCounts] = useState<RejectionCounts>();
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(true);
 
@@ -28,7 +37,7 @@ export default function MarketScanner() {
       if (!response.ok || !data.success) throw new Error(data.error || "Не вдалося оновити аналіз.");
       setPlans(data.plans ?? []);
       setCounts({ scanned: data.scanned ?? 0, eligible: data.eligible ?? 0, analyzed: data.analyzed ?? 0 });
-      setUpdatedAt(data.generatedAt); setError(undefined);
+      setUpdatedAt(data.generatedAt); setRejectionCounts(data.rejectionCounts); setError(undefined);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Помилка сканування."); }
     finally { setLoading(false); }
   }, []);
@@ -62,6 +71,16 @@ export default function MarketScanner() {
           <span>Оновлено <strong className="font-semibold tabular-nums text-slate-200">{updatedAt ? new Date(updatedAt).toLocaleTimeString() : "—"}</strong></span>
         </div>
       </div>
+      {plans.length === 0 && <section className="rounded-xl border border-slate-800 bg-slate-900/60 px-5 py-6 text-sm text-slate-300">
+        <p className="font-semibold text-slate-100">Зараз немає планів, що відповідають усім умовам.</p>
+        <p className="mt-1 text-slate-400">Сканер не створює позиції штучно. Наступний аналіз відбудеться автоматично.</p>
+        {rejectionCounts && <details className="mt-3 text-xs"><summary className="cursor-pointer text-slate-400">Чому пари не пройшли відбір</summary>
+          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-2">
+            {rejectionLabels.filter(([key]) => rejectionCounts[key] > 0).map(([key, label]) =>
+              <span key={key}>{label}: <strong className="text-slate-200">{rejectionCounts[key]}</strong></span>)}
+          </div>
+        </details>}
+      </section>}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {plans.map((plan, index) => {
           const rank = rankStyles[index];
