@@ -59,6 +59,13 @@ async function makePlan(ticker: Ticker): Promise<TradePlan | null> {
   const stopLoss = direction === "LONG" ? entry - risk : entry + risk;
   const rawTakeProfit2 = direction === "LONG" ? entry + risk * 2.4 : entry - risk * 2.4;
   const takeProfit2 = structuralTarget(direction, rawTakeProfit2, dailyCandles);
+  const roundedStop = roundPrice(stopLoss);
+  const roundedTarget = roundPrice(takeProfit2);
+  const actualRisk = Math.abs(entryPrice - roundedStop);
+  const actualReward = direction === "LONG" ? roundedTarget - entryPrice : entryPrice - roundedTarget;
+  if (!(actualRisk > 0 && actualReward > 0)) return null;
+  const actualRR = actualReward / actualRisk;
+  if (actualRR < 1.5) return null;
   const score = Math.min(95, Math.round(62 + Math.min(Math.abs(change) * 550, 14) + Math.min(relativeVolume * 5, 10) + 9));
   const entryPrice = roundPrice(entry);
   const caution = relativeVolume >= 1.2 ? "Усі три таймфрейми узгоджені, але Limit-зона може не бути протестована." : "Напрямок узгоджений, але обсяг слабкий: не ставте заявку без повторної автооцінки.";
@@ -71,10 +78,10 @@ async function makePlan(ticker: Ticker): Promise<TradePlan | null> {
     entryPrice,
     entryLow: roundPrice(entry - zoneHalfWidth),
     entryHigh: roundPrice(entry + zoneHalfWidth),
-    stopLoss: roundPrice(stopLoss),
-    takeProfit1: roundPrice(takeProfit2),
-    takeProfit2: roundPrice(takeProfit2),
-    riskReward: 2.4,
+    stopLoss: roundedStop,
+    takeProfit1: roundedTarget,
+    takeProfit2: roundedTarget,
+    riskReward: Number(actualRR.toFixed(2)),
     expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
     reasons: [`4h тренд: ціна ${directionLabel(direction)} EMA20 і EMA50`, `1h структура: ціна ${directionLabel(direction)} EMA20 і EMA50`, `30m підтвердження входу: ${direction}`, `Take-profit обмежено 1D підтримкою/опором`, `24h імпульс ${(change * 100).toFixed(2)}% · обсяг ${relativeVolume.toFixed(1)}×`],
     summary: `4h, 1h і 30m узгоджені для ${direction}. Limit-вхід очікує повернення ціни до ${entryPrice}.`,
@@ -86,17 +93,23 @@ async function makePlan(ticker: Ticker): Promise<TradePlan | null> {
   };
 }
 
+export async function scanTechnicalPlans() {
+  const response = await fetch(`${DEMO_BYBIT_URL}/v5/market/tickers?category=linear`, { cache: "no-store" });
+  if (!response.ok) throw new Error("Bybit market unavailable.");
+  const data = await response.json() as { retCode: number; retMsg?: string; result?: { list?: Ticker[] } };
+  if (data.retCode !== 0 || !data.result?.list) throw new Error(data.retMsg || "Не вдалося отримати ринок Bybit.");
+  const eligible = data.result.list.filter((ticker) => ticker.symbol.endsWith("USDT") && Number(ticker.turnover24h) >= 20_000_000);
+  const analyzed = eligible.sort((a, b) => Number(b.turnover24h) - Number(a.turnover24h)).slice(0, 18);
+  const plans = (await Promise.all(analyzed.map(makePlan))).filter((plan): plan is TradePlan => plan !== null).sort((a, b) => b.score - a.score).slice(0, 6);
+  return { plans, scanned: data.result.list.length, eligible: eligible.length, analyzed: analyzed.length };
+}
+
 export async function GET() {
   try {
-    const response = await fetch(`${DEMO_BYBIT_URL}/v5/market/tickers?category=linear`, { cache: "no-store" });
-    const data = await response.json() as { retCode: number; retMsg?: string; result?: { list?: Ticker[] } };
-    if (data.retCode !== 0 || !data.result?.list) throw new Error(data.retMsg || "Не вдалося отримати ринок Bybit.");
-    const eligible = data.result.list.filter((ticker) => ticker.symbol.endsWith("USDT") && Number(ticker.turnover24h) >= 20_000_000);
-    const analyzed = eligible.sort((a, b) => Number(b.turnover24h) - Number(a.turnover24h)).slice(0, 18);
-    const plans = (await Promise.all(analyzed.map(makePlan))).filter((plan): plan is TradePlan => plan !== null).sort((a, b) => b.score - a.score).slice(0, 6);
+    const { plans, scanned, eligible, analyzed } = await scanTechnicalPlans();
     const ai = await createAiExplanations(plans);
     const enrichedPlans = plans.map((plan) => ai.explanations[plan.id] ? { ...plan, ...ai.explanations[plan.id], explanationSource: "ai" as const } : plan);
-    return NextResponse.json({ success: true, scanned: data.result.list.length, eligible: eligible.length, analyzed: analyzed.length, plans: enrichedPlans, aiStatus: ai.status, generatedAt: new Date().toISOString() });
+    return NextResponse.json({ success: true, scanned, eligible, analyzed, plans: enrichedPlans, aiStatus: ai.status, generatedAt: new Date().toISOString() });
   } catch (caught) {
     return NextResponse.json({ success: false, error: caught instanceof Error ? caught.message : "Помилка сканування." }, { status: 502 });
   }
