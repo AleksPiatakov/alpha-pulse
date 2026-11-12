@@ -163,7 +163,7 @@ function evaluateAt(history: ReplayTimeframes, variant: ReplayVariant): Setup | 
     diagnostics: { score: quality.score, readiness: quality.confirmedConditions,
       relativeVolume, distanceAtr, rewardRisk: reward / Math.abs(stop - entry),
       trendStrengthAtr, entryDelayBars: 0 },
-  } : null;
+  };
 }
 
 export function summarizeTrades(trades: ReplayTrade[]) {
