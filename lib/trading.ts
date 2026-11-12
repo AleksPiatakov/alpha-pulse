@@ -8,6 +8,7 @@ export interface TradePlan {
   id: string; symbol: string; direction: PlanDirection; score: number; currentPrice: number;
   entryPrice: number; entryLow: number; entryHigh: number; stopLoss: number;
   takeProfit1: number; takeProfit2: number; riskReward: number; expiresAt: string;
+  readiness?: { met: number; total: number; missing: string[] };
   reasons: string[]; summary: string; caution: string; nextStep: string; explanationSource: "rule" | "ai"; invalidation: string; status: "ACTIVE" | "REVIEW" | "INVALID";
 }
 export function isDemoEnvironment() { return serverEnv("BYBIT_ENV") === "demo"; }
