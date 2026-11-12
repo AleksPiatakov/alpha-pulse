@@ -50,19 +50,17 @@ export default function MarketScanner() {
       <div className="flex items-center gap-3"><Link href="/orders" className="rounded-lg border border-slate-600 bg-slate-950 px-4 py-2 text-sm font-semibold hover:border-cyan-400">Активні заявки</Link><Link href="/settings" className="rounded-lg border border-slate-600 bg-slate-950 px-4 py-2 text-sm font-semibold hover:border-cyan-400">Ризик і позиції</Link><button onClick={() => void refresh()} className="rounded-lg border border-slate-600 bg-slate-950 px-4 py-2 text-sm font-semibold hover:border-emerald-400">↻ Оновити</button></div>
     </header>
 
-    <section className="mb-6 grid grid-cols-2 gap-2 text-xs md:grid-cols-5">
-      <Metric label="Усього Bybit" value={counts.scanned} />
-      <Metric label="Ліквідних" value={counts.eligible} />
-      <Metric label="Проаналізовано" value={counts.analyzed} />
-      <Metric label="Відібрано планів" value={`${plans.length}/6`} />
-      <Metric label="Оновлено" value={updatedAt ? new Date(updatedAt).toLocaleTimeString() : "—"} />
-    </section>
-
     {error && <p className="mb-5 rounded-lg border border-red-900 bg-red-950/40 p-3 text-sm text-red-200">{error}</p>}
     {loading ? <p className="py-20 text-center text-slate-400">Будується шість торгових setup-планів…</p> : <section>
-      <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-        <div><h2 className="text-xl font-bold">Рейтинг торгових планів</h2></div>
-        
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-x-5 gap-y-2">
+        <h2 className="text-xl font-bold">Рейтинг торгових планів</h2>
+        <div aria-label="Статистика сканера" className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400 sm:gap-x-4">
+          <span>Bybit <strong className="font-semibold text-slate-200">{counts.scanned}</strong></span>
+          <span>Ліквідних <strong className="font-semibold text-slate-200">{counts.eligible}</strong></span>
+          <span>Аналіз <strong className="font-semibold text-slate-200">{counts.analyzed}</strong></span>
+          <span>Плани <strong className="font-semibold text-emerald-300">{plans.length}/6</strong></span>
+          <span>Оновлено <strong className="font-semibold tabular-nums text-slate-200">{updatedAt ? new Date(updatedAt).toLocaleTimeString() : "—"}</strong></span>
+        </div>
       </div>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {plans.map((plan, index) => {
@@ -97,6 +95,3 @@ export default function MarketScanner() {
   </main>;
 }
 
-function Metric({ label, value }: { label: string; value: string | number }) {
-  return <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2.5"><p className="text-[11px] text-slate-500">{label}</p><p className="mt-0.5 text-sm font-bold text-slate-100">{value}</p></div>;
-}
