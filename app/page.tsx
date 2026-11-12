@@ -61,6 +61,7 @@ export default function MarketScanner() {
 
   // Confirmed and in-zone are independent attributes: never rank an unconfirmed setup above a confirmed one solely for proximity.
   const byQuality = (a: TradePlan, b: TradePlan) =>
+    Number(Boolean(b.qualityGate?.passed)) - Number(Boolean(a.qualityGate?.passed)) ||
     b.score - a.score || b.riskReward - a.riskReward || a.symbol.localeCompare(b.symbol);
   const confirmedPlans = plans.filter((plan) => plan.status === "ACTIVE")
     .sort((a, b) => Number(isInEntryZone(b)) - Number(isInEntryZone(a)) || byQuality(a, b));
@@ -108,6 +109,7 @@ export default function MarketScanner() {
           </div>
         </div>
       </div>
+      <p className="mb-3 text-xs text-amber-200">«Підтверджено» означає технічну готовність MTF, не доказ прибутковості. Дослідний фільтр якості показано окремо. До завершення обходу це не рейтинг усього ринку.</p>
       {featuredCount === 0 && <section className="rounded-xl border border-slate-800 bg-slate-900/60 px-5 py-6 text-sm text-slate-300">
         <p className="font-semibold text-slate-100">Поки немає підтверджених сценаріїв або ціни в зоні входу.</p>
         <p className="mt-1 text-slate-400">Інші сценарії можна переглянути нижче. Перевірка ринку продовжується під час оновлень.</p>
@@ -128,6 +130,7 @@ export default function MarketScanner() {
           const position = group.offset + index;
           const rank = rankStyles[position];
           const isLong = plan.direction === "LONG";
+          const qualityReady = plan.status === "ACTIVE" && plan.qualityGate?.passed === true;
           return <article key={plan.id} className={`rounded-xl border bg-slate-900 p-4 shadow-lg ${rank?.border ?? "border-slate-700"}`}>
             <div className="mb-3 flex items-start justify-between gap-3">
               <div className="flex items-center gap-2">
@@ -136,6 +139,8 @@ export default function MarketScanner() {
               </div>
               <span className={`rounded-full px-2 py-1 text-xs font-bold ${isLong ? "bg-emerald-950 text-emerald-300" : "bg-rose-950 text-rose-300"}`}>{plan.direction}</span>
             </div>
+            <p className={`mb-2 text-xs font-semibold ${qualityReady ? "text-emerald-300" : "text-amber-300"}`}>{qualityReady ? "Пройдено дослідний фільтр Entry / SL / TP" : "Якість Entry / SL / TP ще не підтверджена"}</p>
+            {plan.qualityGate && !plan.qualityGate.passed && <p className="mb-3 text-xs text-slate-400">Причина: {plan.qualityGate.reasons.slice(0, 2).join("; ")}</p>}
             <div className="mb-3 flex items-end justify-between border-b border-slate-800 pb-3">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1"><p className={`text-sm font-bold ${rank?.accent ?? "text-slate-300"}`}>Потенціал {plan.score}/100</p><p className={`text-xs font-semibold ${plan.status === "ACTIVE" ? "text-emerald-300" : "text-amber-300"}`}>Готовність {plan.readiness?.met ?? "—"}/{plan.readiness?.total ?? 8}</p><p className="text-xs font-semibold text-emerald-300">R:R 1:{plan.riskReward.toFixed(2)}</p></div>
               <p className="text-xs text-slate-400">Ціна зараз: <b className="text-slate-200">{price(plan.currentPrice)}</b></p>
