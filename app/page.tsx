@@ -146,7 +146,10 @@ export default function MarketScanner() {
             </dl>
             <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950/70 p-3"><div className="flex items-center justify-between gap-2"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Пояснення сценарію</p>{plan.explanationSource === "ai" ? <span className="rounded bg-violet-400/10 px-1.5 py-0.5 text-[9px] font-bold text-violet-300">AI</span> : <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[9px] font-bold text-slate-400">ТЕХНІЧНЕ</span>}</div><p className="mt-1 text-xs leading-relaxed text-slate-200">{plan.summary}</p><p className="mt-2 border-l-2 border-amber-400/70 pl-2 text-[11px] leading-relaxed text-amber-100">Ризик: {plan.caution}</p><p className="mt-2 text-[11px] text-cyan-200">Дія: {plan.nextStep}</p></div>
             <details className="mt-3 rounded-lg bg-slate-950/60 px-3 py-2"><summary className="cursor-pointer text-xs font-semibold text-slate-400">Деталі технічного аналізу</summary><div className="mt-3 flex flex-wrap gap-1.5">{plan.reasons.map((reason) => <span key={reason} className="rounded bg-slate-800 px-2 py-1 text-[11px] text-slate-300">{reason}</span>)}</div></details>
-            <p className="mt-3 text-xs text-amber-200">Інвалідація: {plan.invalidation}</p>
+            <div className="mt-3 space-y-1 text-xs">
+              <p className="text-amber-200"><strong>Перегляд сценарію:</strong> {plan.lifecycle?.setupReview ?? plan.invalidation}</p>
+              <p className="text-rose-200"><strong>Захисний Stop Loss:</strong> {plan.lifecycle?.stopProtection ?? "Фактичний тригер перевіряй у деталях Demo-ордера."}</p>
+            </div>
             <button onClick={() => openPlan(plan)} className={`mt-4 w-full rounded-lg px-4 py-2 text-sm font-bold ${position === 0 ? "bg-emerald-400 text-slate-950 hover:bg-emerald-300" : "bg-slate-800 text-slate-100 hover:bg-slate-700"}`}>{position === 0 ? "Переглянути сценарій →" : "Відкрити план"}</button>
           </article>;
         })}
