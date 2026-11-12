@@ -117,6 +117,9 @@ export function roundedPlanLevels(
   const roundedStop = roundPlanPrice(stop);
   const roundedTarget = roundPlanPrice(target);
   const rr = rewardRisk(direction, roundedEntry, roundedStop, roundedTarget);
-  return roundedEntry > 0 && roundedStop > 0 && roundedTarget > 0 && Number.isFinite(rr) && rr > 0
+  const stopOnLossSide = direction === "LONG" ? roundedStop < roundedEntry : roundedStop > roundedEntry;
+  const targetOnProfitSide = direction === "LONG" ? roundedTarget > roundedEntry : roundedTarget < roundedEntry;
+  return roundedEntry > 0 && roundedStop > 0 && roundedTarget > 0 &&
+    stopOnLossSide && targetOnProfitSide && Number.isFinite(rr) && rr > 0
     ? { entry: roundedEntry, stop: roundedStop, target: roundedTarget, rr } : null;
 }
