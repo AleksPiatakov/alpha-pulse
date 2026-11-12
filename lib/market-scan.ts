@@ -49,6 +49,19 @@ function structuralTarget(direction: PlanDirection, entry: number, stopLoss: num
   return direction === "LONG" ? Math.min(ideal, buffered) : Math.max(ideal, buffered);
 }
 
+function nearestConfirmedLevel(candles: Candle[], direction: PlanDirection, marketPrice: number): number | null {
+  const levels: number[] = [];
+  // A local swing on completed candles is a candidate support/resistance, not a guaranteed turning point.
+  const side = direction === "LONG" ? 3 : 2;
+  for (let i = 2; i < candles.length - 2; i++) {
+    const level = Number(candles[i][side]);
+    const nearby = [i - 2, i - 1, i + 1, i + 2].map((j) => Number(candles[j][side]));
+    if (nearby.every((n) => direction === "LONG" ? level < n : level > n) &&
+        (direction === "LONG" ? level < marketPrice : level > marketPrice)) levels.push(level);
+  }
+  return levels.length ? (direction === "LONG" ? Math.max(...levels) : Math.min(...levels)) : null;
+}
+
 async function candlesFor(symbol: string, interval: Interval) {
   const limit = 200;
   const response = await fetch(`${DEMO_BYBIT_URL}/v5/market/kline?category=linear&symbol=${symbol}&interval=${interval}&limit=${limit}`, { cache: "no-store" });
@@ -67,26 +80,38 @@ async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null):
   if (!candles30 || !candles1h || !candles4h || !dailyCandles) return reject("candles");
   const price = Number(ticker.lastPrice), change = Number(ticker.price24hPcnt);
   const direction4h = trend(candles4h, price), direction1h = trend(candles1h, price), direction30m = trend(candles30, price);
-  if (!Number.isFinite(price) || price <= 0 || !direction4h || direction4h !== direction1h || direction1h !== direction30m) return reject("trend");
-  const direction = direction1h;
+  if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(change)) return reject("prices");
+  const aligned = !!direction4h && direction4h === direction1h && direction1h === direction30m;
+  const direction: PlanDirection = direction4h ?? direction1h ?? direction30m ?? (change >= 0 ? "LONG" : "SHORT");
   const volatility1h = atr(candles1h), volatility30m = atr(candles30);
   const averageVolume = candles1h.slice(-31, -1).reduce((sum, candle) => sum + Number(candle[5]), 0) / 30;
   if (averageVolume <= 0) return reject("volume");
   const relativeVolume = Number(candles1h.at(-1)?.[5] ?? 0) / averageVolume;
   const entryEma30m = ema(candles30.map((candle) => Number(candle[4])), 20);
-  if (!Number.isFinite(volatility1h) || volatility1h <= 0 || !Number.isFinite(volatility30m) || volatility30m <= 0 || !Number.isFinite(relativeVolume) || relativeVolume < 0.65) return reject("volume");
-  if ((direction === "LONG" && change <= .003) || (direction === "SHORT" && change >= -.003)) return reject("momentum");
-  const entry = direction === "LONG" ? Math.min(entryEma30m, price - volatility30m * .25) : Math.max(entryEma30m, price + volatility30m * .25);
+  if (!Number.isFinite(volatility1h) || volatility1h <= 0 || !Number.isFinite(volatility30m) || volatility30m <= 0 || !Number.isFinite(relativeVolume)) return reject("volume");
+  const volumeConfirmed = relativeVolume >= 0.65;
+  const momentumConfirmed = direction === "LONG" ? change > 0.003 : change < -0.003;
+  const pivotLevels = [candles30, candles1h, candles4h, dailyCandles]
+    .map((candles) => nearestConfirmedLevel(candles, direction, price))
+    .filter((level): level is number => level !== null);
+  const pivot = pivotLevels.length
+    ? (direction === "LONG" ? Math.max(...pivotLevels) : Math.min(...pivotLevels))
+    : null;
+  const entry = pivot ?? (direction === "LONG"
+    ? Math.min(entryEma30m, price - volatility30m * .25)
+    : Math.max(entryEma30m, price + volatility30m * .25));
   const entryDistanceAtr = Math.abs(price - entry) / volatility30m;
-  if (!Number.isFinite(entryDistanceAtr) || entryDistanceAtr > 2.5) return reject("distance");
+  if (!Number.isFinite(entryDistanceAtr) || entryDistanceAtr > 20) return reject("distance");
+  const entryNearby = entryDistanceAtr <= 2.5;
   const zoneHalfWidth = volatility30m * .45;
   const risk = Math.max(volatility1h * 1.25, volatility30m * 2);
   const stopLoss = direction === "LONG" ? entry - risk : entry + risk;
   if (!(entry > 0 && stopLoss > 0 && Number.isFinite(entry) && Number.isFinite(stopLoss))) return reject("prices");
   const rawTakeProfit2 = direction === "LONG" ? entry + risk * 2.4 : entry - risk * 2.4;
   const structural = structuralTarget(direction, entry, stopLoss, dailyCandles);
-  if (structural === null) return reject("daily_level");
-  const takeProfit2 = direction === "LONG" ? Math.min(rawTakeProfit2, structural) : Math.max(rawTakeProfit2, structural);
+  const hasDailyTarget = structural !== null;
+  const takeProfit2 = structural === null ? rawTakeProfit2
+    : direction === "LONG" ? Math.min(rawTakeProfit2, structural) : Math.max(rawTakeProfit2, structural);
   const entryPrice = roundPrice(entry);
   const roundedStop = roundPrice(stopLoss);
   const roundedTarget = roundPrice(takeProfit2);
@@ -95,14 +120,15 @@ async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null):
   const actualReward = direction === "LONG" ? roundedTarget - entryPrice : entryPrice - roundedTarget;
   if (!(actualRisk > 0 && actualReward > 0)) return reject("reward_risk");
   const actualRR = actualReward / actualRisk;
-  if (actualRR < 1.5) return reject("reward_risk");
+  if (!Number.isFinite(actualRR) || actualRR < 0.5) return reject("reward_risk");
+  const ready = aligned && volumeConfirmed && momentumConfirmed && entryNearby && hasDailyTarget && actualRR >= 1.5 && pivot !== null;
   // Heuristic ranking, not an estimated probability of a profitable trade.
   // All candidates already have aligned 4h/1h/30m trends and R:R >= 1.5.
   const momentumPoints = Math.min(Math.abs(change) * 400, 12);
   const volumePoints = Math.min(Math.max(relativeVolume - 0.5, 0) * 8, 10);
   const rewardRiskPoints = Math.min(Math.max((actualRR - 1.5) / 0.9, 0) * 20, 20);
   const proximityPoints = 12 * Math.max(0, 1 - entryDistanceAtr / 2.5);
-  const score = Math.min(95, Math.round(41 + momentumPoints + volumePoints + rewardRiskPoints + proximityPoints));
+  const score = Math.max(1, Math.min(95, Math.round(41 + momentumPoints + volumePoints + rewardRiskPoints + proximityPoints - (ready ? 0 : 18))));
   const caution = relativeVolume >= 1.2 ? "Усі три таймфрейми узгоджені, але Limit-зона може не бути протестована." : "Напрямок узгоджений, але обсяг слабкий: не ставте заявку без повторної автооцінки.";
   return {
     id: `${ticker.symbol}-${direction}-${Math.round(entry * 1e6)}`,
@@ -118,13 +144,13 @@ async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null):
     takeProfit2: roundedTarget,
     riskReward: Number(actualRR.toFixed(2)),
     expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
-    reasons: [`4h тренд: ціна ${directionLabel(direction)} EMA20 і EMA50`, `1h структура: ціна ${directionLabel(direction)} EMA20 і EMA50`, `30m підтвердження входу: ${direction}`, `Take-profit обмежено найближчим підтвердженим 1D swing-рівнем`, `24h імпульс ${(change * 100).toFixed(2)}% · закритий 1h обсяг ${relativeVolume.toFixed(1)}× · до входу ${entryDistanceAtr.toFixed(2)} ATR`],
-    summary: `4h, 1h і 30m узгоджені для ${direction}. Limit-вхід очікує повернення ціни до ${entryPrice}.`,
+    reasons: [`4h тренд: ціна ${directionLabel(direction)} EMA20 і EMA50`, `1h структура: ціна ${directionLabel(direction)} EMA20 і EMA50`, `30m підтвердження входу: ${direction}`, hasDailyTarget ? `TP обмежено денним swing-рівнем` : `Ціль попередня: денний рівень не підтверджений`, `24h імпульс ${(change * 100).toFixed(2)}% · закритий 1h обсяг ${relativeVolume.toFixed(1)}× · до входу ${entryDistanceAtr.toFixed(2)} ATR`],
+    summary: `${ready ? "Підтверджений технічний план" : "Сценарій спостереження"} ${direction}. Очікується Limit-рівень ${entryPrice}.`,
     caution,
-    nextStep: "Дочекайтеся Limit-зони; автоаналіз скасує рекомендацію, якщо таймфрейми розійдуться.",
+    nextStep: ready ? "Перевірте актуальний план і ризик перед Demo-заявкою." : "Очікуйте підтвердження тренду, обсягу та рівня; заявку поки не ставити.",
     explanationSource: "rule",
     invalidation: direction === "LONG" ? `1h закриття нижче ${roundPrice(stopLoss)}` : `1h закриття вище ${roundPrice(stopLoss)}`,
-    status: "ACTIVE",
+    status: ready ? "ACTIVE" : "REVIEW",
   };
 }
 
@@ -183,7 +209,7 @@ async function doScan(): Promise<ScanResult> {
     if (now - record.checkedAt > PLAN_TTL) seenPlans.delete(symbol);
   }
   const plans = [...seenPlans.values()].map((record) => record.plan)
-    .sort((a, b) => b.score - a.score || b.riskReward - a.riskReward || a.symbol.localeCompare(b.symbol))
+    .sort((a, b) => (a.status === "ACTIVE" ? -1 : 1) - (b.status === "ACTIVE" ? -1 : 1) || b.score - a.score || b.riskReward - a.riskReward || a.symbol.localeCompare(b.symbol))
     .slice(0, MAX_VISIBLE);
   return { plans, scanned: data.result.list.length, eligible: eligible.length,
     analyzed: batch.length, covered: seenPlans.size, category: "linear", rejectionCounts };
