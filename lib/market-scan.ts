@@ -1,6 +1,8 @@
 import { DEMO_BYBIT_URL, roundPrice, type PlanDirection, type TradePlan } from "@/lib/trading";
 import { calculatePlanningLevels, assessPlanningLevels } from "./trade-planning-engine.ts";
-import { fetchLinearUniverse, matchUniverseTickers, type UniverseResult } from "./bybit-universe.ts";
+import { fetchLinearUniverse, matchUniverseTickers, type UniverseResult, type InstrumentMeta } from "./bybit-universe.ts";
+import { parseExecutionRules } from "./bybit-execution-rules.ts";
+import { roundToTick } from "./technical-plan-core.ts";
 import { emaValues as ema, atrBars, trendBars, nearestSwingLevel, isCompletedBar, type PriceBar } from "./technical-plan-core.ts";
 
 type Ticker = { symbol: string; lastPrice: string; price24hPcnt: string; turnover24h: string };
@@ -29,7 +31,9 @@ async function candlesFor(symbol: string, interval: Interval) {
 }
 
 export type FilterReason = "candles" | "trend" | "volume" | "momentum" | "distance" | "prices" | "daily_level" | "reward_risk" | "error";
-async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null): Promise<TradePlan | null> {
+async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null, meta?: InstrumentMeta): Promise<TradePlan | null> {
+  const rules = parseExecutionRules(meta);
+  if (!rules) return reject("prices");
   const [candles30, candles1h, candles4h, dailyCandles] = await Promise.all([candlesFor(ticker.symbol, "30"), candlesFor(ticker.symbol, "60"), candlesFor(ticker.symbol, "240"), candlesFor(ticker.symbol, "D")]);
   if (!candles30 || !candles1h || !candles4h || !dailyCandles) return reject("candles");
   const price = Number(ticker.lastPrice), change = Number(ticker.price24hPcnt);
@@ -51,6 +55,7 @@ async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null):
   const levels = calculatePlanningLevels({
     direction, currentPrice: price, atr30m: volatility30m, atr1h: volatility1h,
     supportLevels: pivotLevels, dailyBars: asBars(dailyCandles), fallbackEntry: entryFallback,
+    tickSize: rules.tickSize,
   });
   if (!levels) return reject("prices");
   const { entry: entryPrice, stop: roundedStop, target: roundedTarget, rewardRisk: actualRR } = levels;
@@ -62,7 +67,7 @@ async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null):
   const h4Pivot = nearestConfirmedLevel(candles4h, direction, price);
   const dPivot = nearestConfirmedLevel(dailyCandles, direction, price);
   const { scenario: quality, gate } = assessPlanningLevels({
-    direction, levels, atr30m: volatility30m,
+    direction, levels, atr30m: volatility30m, tickSize: rules.tickSize,
     quality: {
       direction4h, direction1h, direction30m, relativeVolume,
       change24h: change, turnover24h: Number(ticker.turnover24h),
@@ -80,10 +85,10 @@ async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null):
     qualityGate: { passed: gate.accepted, reasons: gate.reasons, policy: "intraday-quality-v1",
       stopAtr: Number.isFinite(gate.stopAtr) ? Number(gate.stopAtr.toFixed(3)) : null,
       rewardRisk: Number.isFinite(gate.rewardRisk) ? Number(gate.rewardRisk.toFixed(3)) : null },
-    currentPrice: roundPrice(price),
+    currentPrice: roundToTick(price, rules.tickSize),
     entryPrice,
-    entryLow: roundPrice(entry - zoneHalfWidth),
-    entryHigh: roundPrice(entry + zoneHalfWidth),
+    entryLow: roundToTick(entry - zoneHalfWidth, rules.tickSize),
+    entryHigh: roundToTick(entry + zoneHalfWidth, rules.tickSize),
     stopLoss: roundedStop,
     takeProfit1: roundedTarget,
     takeProfit2: roundedTarget,
@@ -143,6 +148,7 @@ async function doScan(): Promise<ScanResult> {
   const eligible = matchUniverseTickers(data.result.list, registry.eligibleSymbols);
   if (eligible.length === 0) throw new Error("Bybit не повернув котирувань для торгових інструментів.");
   const universe = new Set(eligible.map((ticker) => ticker.symbol));
+  const metadataBySymbol = new Map(registry.instruments.map((item) => [item.symbol, item]));
   for (const symbol of seenPlans.keys()) if (!universe.has(symbol)) seenPlans.delete(symbol);
   for (const symbol of visited) if (!universe.has(symbol)) visited.delete(symbol);
   if (scanCursor >= eligible.length) scanCursor = 0;
@@ -162,7 +168,7 @@ async function doScan(): Promise<ScanResult> {
       const ticker = batch[current];
       try {
         results[current] = { status: "fulfilled",
-          value: await makePlan(ticker, (reason) => { rejectionCounts[reason]++; return null; }) };
+          value: await makePlan(ticker, (reason) => { rejectionCounts[reason]++; return null; }, metadataBySymbol.get(ticker.symbol)) };
       } catch (reason) {
         results[current] = { status: "rejected", reason };
       }
@@ -222,5 +228,11 @@ export async function verifyCurrentTechnicalPlan(symbol: string): Promise<TradeP
   const data = await tickers.json() as { retCode: number; result?: { list?: Ticker[] } };
   const ticker = data.retCode === 0 ? data.result?.list?.find((item) => item.symbol === symbol) : undefined;
   if (!ticker) return null;
-  return makePlan(ticker, () => null);
+  const url = `${DEMO_BYBIT_URL}/v5/market/instruments-info?category=linear&symbol=${encodeURIComponent(symbol)}`;
+  const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(12000) });
+  if (!response.ok) return null;
+  const info = await response.json() as { retCode?: number; result?: { list?: InstrumentMeta[] } };
+  if (info.retCode !== 0) return null;
+  const meta = info.result?.list?.find((item) => item.symbol === symbol);
+  return makePlan(ticker, () => null, meta);
 }
