@@ -17,7 +17,7 @@ test("confirmed pullback uses only completed bars and returns explicit hypotheti
   const input=ctx(), m=input.m30;
   // The previous candle pierces EMA20, current candle recovers above it.
   const prev=m.at(-2);
-  prev.low-=5;prev.close-=2;
+  prev.low-=1.5;prev.close-=1;
   const result=trendPullback.evaluate(input);
   assert.ok(result);
   assert.equal(result.direction,"LONG");
