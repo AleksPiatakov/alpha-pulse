@@ -4,7 +4,7 @@ import { replayHourlyLimitStrategy, type HistoryBar } from "@/lib/backtest";
 
 const symbolPattern = /^[A-Z0-9]{3,24}USDT$/;
 type BybitCandle = [string, string, string, string, string, string];
-let cache = new Map<string, { until: number; payload: unknown }>();
+const cache = new Map<string, { until: number; payload: unknown }>();
 
 export async function GET(request: Request) {
   const symbol = (new URL(request.url).searchParams.get("symbol") || "").toUpperCase();
