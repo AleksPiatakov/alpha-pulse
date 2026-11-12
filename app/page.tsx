@@ -75,12 +75,21 @@ export default function MarketScanner() {
     {loading ? <p className="py-20 text-center text-slate-400">Сканування інструментів Bybit…</p> : <section>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-x-5 gap-y-2">
         <h2 className="text-xl font-bold">Рейтинг торгових планів</h2>
-        <div aria-label="Статистика сканера" className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400 sm:gap-x-4">
+        <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
+          {waitingPlans.length > 0 && <button type="button"
+            aria-expanded={showWaiting}
+            onClick={() => setShowWaiting((open) => !open)}
+            className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-2.5 py-1 text-xs font-semibold text-slate-300 hover:border-slate-500 hover:text-slate-100">
+            <span aria-hidden="true">{showWaiting ? "▾" : "▸"}</span>
+            Очікування {waitingPlans.length} · {showWaiting ? "Згорнути" : "Показати"}
+          </button>}
+          <div aria-label="Статистика сканера" className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400 sm:gap-x-4">
           <span>Bybit linear <strong className="font-semibold text-slate-200">{counts.scanned}</strong></span>
           <span>Доступних <strong className="font-semibold text-slate-200">{counts.eligible}</strong></span>
           <span>Перевірено <strong className="font-semibold text-slate-200">{counts.covered}/{counts.eligible}</strong></span>
           <span>Видимих <strong className="font-semibold text-emerald-300">{featuredPlans.length}</strong></span>
           <span>Оновлено <strong className="font-semibold tabular-nums text-slate-200">{updatedAt ? new Date(updatedAt).toLocaleTimeString() : "—"}</strong></span>
+          </div>
         </div>
       </div>
       {featuredPlans.length === 0 && <section className="rounded-xl border border-slate-800 bg-slate-900/60 px-5 py-6 text-sm text-slate-300">
@@ -93,13 +102,6 @@ export default function MarketScanner() {
           </div>
         </details>}
       </section>}
-      {waitingPlans.length > 0 && <button type="button"
-        aria-expanded={showWaiting}
-        onClick={() => setShowWaiting((open) => !open)}
-        className="mb-4 flex items-center gap-2 rounded-lg border border-slate-800 px-3 py-2 text-xs font-semibold text-slate-300 hover:border-slate-600 hover:text-slate-100">
-        <span aria-hidden="true">{showWaiting ? "▾" : "▸"}</span>
-        Очікування ({waitingPlans.length}) · {showWaiting ? "Згорнути" : "Показати"}
-      </button>}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {displayedPlans.map((plan, index) => {
           const rank = rankStyles[index];
