@@ -52,7 +52,21 @@ export type ReplayTimeframes = {
 
 const durations = { "30": 1_800_000, "60": 3_600_000, "240": 14_400_000, D: 86_400_000 } as const;
 const feePerSide = 0.00055;
-export type ExecutionMode = "reference" | "conservative";
+export type ExecutionMode = "reference" | "fees-only" | "slippage-only" | "fill-only" | "conservative";
+export const EXECUTION_STRESS_CASES: ReadonlyArray<{ key: ExecutionMode; label: string }> = [
+  { key: "reference", label: "Звичайне виконання" },
+  { key: "fees-only", label: "Лише підвищена комісія" },
+  { key: "slippage-only", label: "Лише прослизання та gap" },
+  { key: "fill-only", label: "Лише суворіший Limit-вхід" },
+  { key: "conservative", label: "Усі три фактори разом" },
+];
+export function executionStressFlags(mode: ExecutionMode) {
+  return {
+    fees: mode === "fees-only" || mode === "conservative",
+    slippage: mode === "slippage-only" || mode === "conservative",
+    limit: mode === "fill-only" || mode === "conservative",
+  };
+}
 export const CONSERVATIVE_EXECUTION = {
   // Explicit hypothetical stress assumptions, not measured Bybit execution statistics.
   entryPenetrationTicks: 1,
@@ -191,21 +205,25 @@ export function replayMultiTimeframeStrategy(
     "30": prepare(raw["30"]), "60": prepare(raw["60"]),
     "240": prepare(raw["240"]), D: prepare(raw.D),
   };
-  if (executionMode === "conservative" && !(tickSize !== undefined && tickSize > 0)) throw Error("Для консервативної моделі потрібен біржовий tickSize.");
+  const stress = executionStressFlags(executionMode);
+  if (stress.limit && !(tickSize !== undefined && Number.isFinite(tickSize) && tickSize > 0)) {
+    throw Error("Для суворішого Limit-входу потрібен біржовий tickSize.");
+  }
   const assumptions = [
     "Walk-forward 30m/1h/4h/1D: кожне рішення використовує лише повністю закриті свічки.",
     "Правила EMA20/50, підтверджених swing-рівнів, ATR і перевірок готовності; історичний 24h оборот — сума годинних turnover Bybit.",
     tickSize === undefined ? "Entry/SL/TP округлюються за десятковою схемою сканера (без біржового tickSize)." : `Entry/SL/TP округлюються за біржовим tickSize=${tickSize}; це окремий експериментальний режим, сканер поки округлює інакше.`,
     "Limit діє до 6 годин, після входу позиція утримується максимум 48 годин; одночасно одна позиція.",
-    "Комісія 0.055% за вхід і вихід; без funding, проскальзування і біржової черги виконання.",
+    "Базова комісія 0.055% за вхід і вихід; стрес-сценарії перевизначають витрати тільки для вибраних факторів.",
     "Якщо стоп і ціль торкнуті в одній свічці, пріоритет має Stop Loss. Заповнення Limit за OHLC моделюється, не гарантоване.",
     "Просідання виражене сумою R при постійному ризику на угоду; це не просідання рахунку у відсотках.",
     "Групи діагностики класифікують тільки виконані угоди за ознаками, відомими на момент сигналу, та не є новими торговими правилами.",
     "Дані обмежені доступною історією Bybit; тест не прогнозує результат майбутньої торгівлі.",
-    ...(executionMode === "conservative" ? [
-      "Консервативний сценарій: Limit зараховується лише після проходження ціною рівня на 1 tick; OHLC не гарантує реального виконання.",
-      "Гіпотетичні витрати: комісія 0.075% на кожний бік, Stop Loss +10 bps adverse slippage, TIMEOUT +5 bps; Take Profit без додаткового проскальзування.",
-      "Для Stop Loss враховується несприятливий gap на відкритті 30m свічки; порядок руху ціни всередині свічки невідомий.",
+    ...(stress.limit ? ["Limit: лише після проходження ціною рівня на 1 tick; OHLC не гарантує реального виконання."] : []),
+    ...(stress.fees ? ["Комісія 0.075% на сторону замість 0.055%; гіпотетичний стрес-тест."] : []),
+    ...(stress.slippage ? [
+      "Stop Loss: несприятливий gap плюс 10 bps; TIMEOUT: 5 bps; TP без додаткового проскальзування.",
+      "Порядок руху всередині свічки невідомий, стрес-модель не відтворює біржову чергу.",
     ] : []),
   ];
   const trades: ReplayTrade[] = [];
@@ -230,7 +248,7 @@ export function replayMultiTimeframeStrategy(
     let entryIndex = -1;
     const fillEnd = Math.min(i + 1 + maxPendingBars, decisionBars.length);
     for (let j = i + 1; j < fillEnd; j++) {
-      const fills = executionMode === "conservative"
+      const fills = stress.limit
         ? qualifiesLimitFill(decisionBars[j], direction, entry, tickSize!)
         : decisionBars[j].low <= entry && entry <= decisionBars[j].high;
       if (fills) {
@@ -247,11 +265,11 @@ export function replayMultiTimeframeStrategy(
         j === exitEnd - 1 ? "TIMEOUT" : null;
       if (!result) continue;
       const exit = result === "SL" ? stop : result === "TP" ? target : candle.close;
-      const executedExit = executionMode === "conservative"
+      const executedExit = stress.slippage
         ? stressedExitPrice(direction, result, exit, j === entryIndex ? exit : candle.open,
           result === "SL" ? CONSERVATIVE_EXECUTION.stopSlippageBps : CONSERVATIVE_EXECUTION.timeoutSlippageBps)
         : exit;
-      const chargedFee = executionMode === "conservative" ? CONSERVATIVE_EXECUTION.feePerSide : feeRate;
+      const chargedFee = stress.fees ? CONSERVATIVE_EXECUTION.feePerSide : feeRate;
       const net = (direction === "LONG" ? executedExit - entry : entry - executedExit) -
         (entry + executedExit) * chargedFee;
       trades.push({ signalTime: time, entryTime: decisionBars[entryIndex].time,
