@@ -135,6 +135,7 @@ async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null):
     symbol: ticker.symbol,
     direction,
     score,
+    readiness: { met: quality.confirmedConditions, total: quality.totalConditions, missing: quality.checks },
     currentPrice: roundPrice(price),
     entryPrice,
     entryLow: roundPrice(entry - zoneHalfWidth),
