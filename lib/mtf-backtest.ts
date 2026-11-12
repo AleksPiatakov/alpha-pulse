@@ -83,7 +83,7 @@ type Setup = { direction: ReplayDirection; entry: number; stop: number; target: 
   diagnostics: { score: number; readiness: number; relativeVolume: number; distanceAtr: number;
     rewardRisk: number; trendStrengthAtr: number; entryDelayBars: number } };
 
-function evaluateAt(history: ReplayTimeframes, variant: ReplayVariant): Setup | null {
+function evaluateAt(history: ReplayTimeframes, variant: ReplayVariant, tickSize?: number): Setup | null {
   const h30 = history["30"], h60 = history["60"], h240 = history["240"], daily = history.D;
   if (h30.length < 60 || h60.length < 60 || h240.length < 60 || daily.length < 60) return null;
   const direction30m = trendBars(h30), direction1h = trendBars(h60), direction4h = trendBars(h240);
@@ -110,7 +110,7 @@ function evaluateAt(history: ReplayTimeframes, variant: ReplayVariant): Setup | 
   if (rawTarget === null || rawTarget <= 0) return null;
   // Replay uses the same decimal rounding and post-rounding R:R as the live scanner.
   // This still does not model instrument tickSize, spread, or the live ticker price.
-  const levels = roundedPlanLevels(direction, rawEntry, rawStop, rawTarget);
+  const levels = roundedPlanLevels(direction, rawEntry, rawStop, rawTarget, tickSize);
   if (!levels || levels.rr < 0.5) return null;
   const { entry, stop, target, rr } = levels;
   const quality = evaluateScenarioQuality({
@@ -153,6 +153,7 @@ export function replayMultiTimeframeStrategy(
   raw: ReplayTimeframes,
   feeRate = feePerSide,
   variant: ReplayVariant = "baseline",
+  tickSize?: number,
 ): ReplaySummary {
   const bars = {
     "30": prepare(raw["30"]), "60": prepare(raw["60"]),
@@ -161,7 +162,7 @@ export function replayMultiTimeframeStrategy(
   const assumptions = [
     "Walk-forward 30m/1h/4h/1D: кожне рішення використовує лише повністю закриті свічки.",
     "Правила EMA20/50, підтверджених swing-рівнів, ATR і перевірок готовності; історичний 24h оборот — сума годинних turnover Bybit.",
-    "Entry/SL/TP округлюються за спільною десятковою схемою сканера, після цього повторно перевіряється R:R. Це ще не tickSize конкретного контракту.",
+    tickSize === undefined ? "Entry/SL/TP округлюються за десятковою схемою сканера (без біржового tickSize)." : `Entry/SL/TP округлюються за біржовим tickSize=${tickSize}; це окремий експериментальний режим, сканер поки округлює інакше.`,
     "Limit діє до 6 годин, після входу позиція утримується максимум 48 годин; одночасно одна позиція.",
     "Комісія 0.055% за вхід і вихід; без funding, проскальзування і біржової черги виконання.",
     "Якщо стоп і ціль торкнуті в одній свічці, пріоритет має Stop Loss. Заповнення Limit за OHLC моделюється, не гарантоване.",
@@ -184,7 +185,7 @@ export function replayMultiTimeframeStrategy(
     };
     if (Object.entries(minHistory).some(([key, length]) =>
       h[key as keyof ReplayTimeframes].length < length)) { i++; continue; }
-    const setup = evaluateAt(h, variant);
+    const setup = evaluateAt(h, variant, tickSize);
     if (!setup) { i++; continue; }
     signals++;
     const { direction, entry, stop, target } = setup;
