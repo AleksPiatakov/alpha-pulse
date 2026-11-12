@@ -4,11 +4,12 @@ import Link from "next/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import type { TradePlan } from "@/lib/trading";
+import type { AiStatus } from "@/lib/ai-explanations";
 import { calculatePosition, defaultRiskSettings, normalizeRiskSettings, RISK_SETTINGS_KEY, type RiskSettings } from "@/lib/risk-settings";
 import { TradingChart } from "@/app/components/TradingChart";
 
 type AccountSnapshot = { balance: number; activeCount: number; source: string };
-type ScanResponse = { success?: boolean; plans?: TradePlan[]; error?: string };
+type ScanResponse = { success?: boolean; plans?: TradePlan[]; aiStatus?: AiStatus; error?: string };
 const price = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 6 })}`;
 const money = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 function storedSettings() { try { return normalizeRiskSettings(JSON.parse(localStorage.getItem(RISK_SETTINGS_KEY) || "null")); } catch { return defaultRiskSettings; } }
@@ -19,6 +20,7 @@ function TradePageContent() {
   const symbol = String(params.symbol ?? "").toUpperCase();
   const [plan, setPlan] = useState<TradePlan | null>(null);
   const [ready, setReady] = useState(false);
+  const [aiStatus, setAiStatus] = useState<AiStatus>();
   const [analysisState, setAnalysisState] = useState<"current" | "not-recommended" | "unavailable">("current");
   const [settings] = useState<RiskSettings>(storedSettings);
   const [account, setAccount] = useState<AccountSnapshot>();
@@ -60,6 +62,7 @@ function TradePageContent() {
         if (!response.ok || !data.success) throw new Error(data.error || "Не вдалося переоцінити план.");
         const freshPlan = data.plans?.find((candidate) => candidate.symbol === symbol);
         if (!active) return;
+        setAiStatus(data.aiStatus);
         if (!freshPlan) { setAnalysisState("not-recommended"); return; }
         setPlan(freshPlan); localStorage.setItem("alpha-pulse-plan-v1", JSON.stringify(freshPlan)); setAnalysisState("current");
       } catch { if (active) setAnalysisState("unavailable"); }
@@ -90,13 +93,14 @@ function TradePageContent() {
   const isLong = plan.direction === "LONG";
   const statusText = analysisState === "current" ? "Автоаналіз · 30 с" : analysisState === "not-recommended" ? "План неактуальний" : "Автоаналіз недоступний";
   return <main className="min-h-screen bg-slate-950 p-5 text-slate-100 md:p-7">
-    <header className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2"><button className="text-sm font-semibold text-emerald-400" onClick={() => router.push("/")}>← Сканер</button><h1 className="text-xl font-black">{plan.symbol} <span className={isLong ? "text-emerald-400" : "text-rose-400"}>· {plan.direction}</span></h1><span className="hidden text-xs text-slate-500 lg:inline">Demo · Limit</span><span className="text-xs text-slate-500">score {plan.score}/100 · до {new Date(plan.expiresAt).toLocaleTimeString()}</span><Link href="/settings" className="ml-auto rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold hover:border-cyan-400">Ризик і позиції</Link></header>
+    <header className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2"><button className="text-sm font-semibold text-emerald-400" onClick={() => router.push("/")}>← Сканер</button><h1 className="text-xl font-black">{plan.symbol} <span className={isLong ? "text-emerald-400" : "text-rose-400"}>· {plan.direction}</span></h1><span className="hidden text-xs text-slate-500 lg:inline">Demo · Limit</span><span className="text-xs text-slate-500">score {plan.score}/100 · до {new Date(plan.expiresAt).toLocaleTimeString()}</span><Link href="/orders" className="ml-auto rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold hover:border-cyan-400">Активні заявки</Link><Link href="/settings" className=" rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold hover:border-cyan-400">Ризик і позиції</Link></header>
     <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
       <section><TradingChart plan={plan} /></section>
       <aside className="xl:sticky xl:top-5">
         <section className="overflow-hidden rounded-2xl border border-slate-700 bg-slate-900">
           <div className="border-b border-slate-800 px-5 py-4"><div className="flex items-center justify-between gap-3"><h2 className="font-bold">План і заявка</h2><span className={`rounded px-2 py-1 text-[10px] font-bold ${analysisState === "current" ? "bg-emerald-950 text-emerald-300" : "bg-amber-950 text-amber-200"}`}>{statusText}</span></div></div>
           <div className="space-y-5 p-5">
+            {aiStatus && <p role="status" className={`rounded-lg border px-3 py-2 text-xs ${aiStatus.state === "ok" || aiStatus.state === "cached" ? "border-emerald-800 text-emerald-200" : "border-amber-800 text-amber-200"}`}>AI: {aiStatus.state === "ok" ? "ПРАЦЮЄ" : aiStatus.state === "cached" ? "КЕШ" : "ТЕХНІЧНИЙ РЕЖИМ"} · {aiStatus.message} ({aiStatus.code})</p>}
             <dl className="grid grid-cols-2 gap-x-4 gap-y-4 text-sm"><Value label="Limit-вхід" value={price(plan.entryPrice)} color="text-cyan-300" /><Value label="Зона" value={`${price(plan.entryLow)}–${price(plan.entryHigh)}`} /><Value label="Stop-loss" value={price(plan.stopLoss)} color="text-rose-300" /><Value label="Take-profit" value={price(plan.takeProfit2)} color="text-emerald-300" /><Value label="Risk / Reward" value={`1:${plan.riskReward}`} /><Value label="Поточна ціна" value={price(plan.currentPrice)} /></dl>
             <p className={`rounded-lg px-3 py-2 text-xs ${analysisState === "current" ? "bg-emerald-950/40 text-emerald-100" : "bg-amber-950/40 text-amber-100"}`}>{analysisState === "current" ? "Рівні та розрахунок оновлюються автоматично." : analysisState === "not-recommended" ? "Пара випала з актуального відбору. Постановку заблоковано." : "Неможливо підтвердити актуальність плану. Постановку заблоковано."}</p>
             <div className="grid grid-cols-2 gap-3 border-y border-slate-800 py-4 text-sm"><Stat label="Ризик" value={money(sizing?.allowedRisk ?? 0)} accent="text-rose-300" /><Stat label="Обсяг" value={(sizing?.quantity ?? 0).toLocaleString(undefined, { maximumFractionDigits: 5 })} /><Stat label="Номінал" value={money(sizing?.notional ?? 0)} accent="text-cyan-300" /><Stat label="Вільні слоти" value={`${sizing?.slotsRemaining ?? 0}/${settings.maxPositions}`} /></div>
