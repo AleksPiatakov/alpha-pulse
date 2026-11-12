@@ -182,7 +182,7 @@ async function doScan(): Promise<ScanResult> {
   if (data.retCode !== 0 || !data.result?.list) throw new Error(data.retMsg || "Не вдалося отримати ринок Bybit.");
   // Scan the complete available linear ticker universe; liquidity affects readiness, not discovery.
   const eligible = data.result.list.filter((ticker) =>
-    Number.isFinite(Number(ticker.lastPrice)) && Number(ticker.lastPrice) > 0);
+    ticker.symbol.endsWith("USDT") && Number.isFinite(Number(ticker.lastPrice)) && Number(ticker.lastPrice) > 0);
   eligible.sort((a, b) => Number(b.turnover24h) - Number(a.turnover24h));
   const universe = new Set(eligible.map((ticker) => ticker.symbol));
   for (const symbol of seenPlans.keys()) if (!universe.has(symbol)) seenPlans.delete(symbol);
