@@ -11,7 +11,7 @@ export interface TradePlan {
   reasons: string[]; summary: string; caution: string; nextStep: string; explanationSource: "rule" | "ai"; invalidation: string; status: "ACTIVE" | "REVIEW" | "INVALID";
 }
 export function isDemoEnvironment() { return serverEnv("BYBIT_ENV") === "demo"; }
-export function isDemoTradingEnabled() { return isDemoEnvironment() && serverEnv("BYBIT_TRADING_ENABLED") === "true"; }
+export function isDemoTradingEnabled() { return isDemoEnvironment(); }
 export function getDemoCredentials() {
   const apiKey = serverEnv("BYBIT_API_KEY"); const apiSecret = serverEnv("BYBIT_API_SECRET");
   if (!apiKey || !apiSecret) throw new Error("Demo API ключі Bybit не налаштовані на сервері.");
