@@ -57,16 +57,20 @@ export default function MarketScanner() {
   }, [refresh]);
 
   // Confirmed and in-zone are independent attributes: never rank an unconfirmed setup above a confirmed one solely for proximity.
-  const featuredPlans = plans
-    .filter((plan) => plan.status === "ACTIVE" || isInEntryZone(plan))
-    .sort((a, b) =>
-      Number(b.status === "ACTIVE") - Number(a.status === "ACTIVE") ||
-      Number(isInEntryZone(b)) - Number(isInEntryZone(a)) ||
-      b.score - a.score ||
-      b.riskReward - a.riskReward ||
-      a.symbol.localeCompare(b.symbol));
-  const waitingPlans = plans.filter((plan) => plan.status !== "ACTIVE" && !isInEntryZone(plan));
-  const displayedPlans = showWaiting ? [...featuredPlans, ...waitingPlans] : featuredPlans;
+  const byQuality = (a: TradePlan, b: TradePlan) =>
+    b.score - a.score || b.riskReward - a.riskReward || a.symbol.localeCompare(b.symbol);
+  const confirmedPlans = plans.filter((plan) => plan.status === "ACTIVE")
+    .sort((a, b) => Number(isInEntryZone(b)) - Number(isInEntryZone(a)) || byQuality(a, b));
+  const zonePlans = plans.filter((plan) => plan.status !== "ACTIVE" && isInEntryZone(plan))
+    .sort(byQuality);
+  const waitingPlans = plans.filter((plan) => plan.status !== "ACTIVE" && !isInEntryZone(plan))
+    .sort(byQuality);
+  const featuredCount = confirmedPlans.length + zonePlans.length;
+  const groups = [
+    { key: "confirmed", title: "Підтверджені", items: confirmedPlans, offset: 0 },
+    { key: "zone", title: "Потенційні входи · без підтвердження", items: zonePlans, offset: confirmedPlans.length },
+    ...(showWaiting ? [{ key: "waiting", title: "Очікування", items: waitingPlans, offset: featuredCount }] : []),
+  ];
 
   const openPlan = (plan: TradePlan) => {
     localStorage.setItem("alpha-pulse-plan-v1", JSON.stringify(plan));
@@ -95,12 +99,12 @@ export default function MarketScanner() {
           <span>Bybit linear <strong className="font-semibold text-slate-200">{counts.scanned}</strong></span>
           <span>Доступних <strong className="font-semibold text-slate-200">{counts.eligible}</strong></span>
           <span>Перевірено <strong className="font-semibold text-slate-200">{counts.covered}/{counts.eligible}</strong></span>
-          <span>Видимих <strong className="font-semibold text-emerald-300">{featuredPlans.length}</strong></span>
+          <span>Видимих <strong className="font-semibold text-emerald-300">{featuredCount}</strong></span>
           <span>Оновлено <strong className="font-semibold tabular-nums text-slate-200">{updatedAt ? new Date(updatedAt).toLocaleTimeString() : "—"}</strong></span>
           </div>
         </div>
       </div>
-      {featuredPlans.length === 0 && <section className="rounded-xl border border-slate-800 bg-slate-900/60 px-5 py-6 text-sm text-slate-300">
+      {featuredCount === 0 && <section className="rounded-xl border border-slate-800 bg-slate-900/60 px-5 py-6 text-sm text-slate-300">
         <p className="font-semibold text-slate-100">Поки немає підтверджених сценаріїв або ціни в зоні входу.</p>
         <p className="mt-1 text-slate-400">Інші сценарії можна переглянути нижче. Перевірка ринку продовжується під час оновлень.</p>
         {rejectionCounts && <details className="mt-3 text-xs"><summary className="cursor-pointer text-slate-400">Чому пари не пройшли відбір</summary>
@@ -110,14 +114,20 @@ export default function MarketScanner() {
           </div>
         </details>}
       </section>}
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {displayedPlans.map((plan, index) => {
-          const rank = rankStyles[index];
+      {groups.filter((group) => group.items.length > 0).map((group) => <section key={group.key} className="mb-5">
+        <div className="mb-2 flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-slate-200">{group.title}</h3>
+          <span className="text-xs tabular-nums text-slate-500">{group.items.length}</span>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {group.items.map((plan, index) => {
+          const position = group.offset + index;
+          const rank = rankStyles[position];
           const isLong = plan.direction === "LONG";
           return <article key={plan.id} className={`rounded-xl border bg-slate-900 p-4 shadow-lg ${rank?.border ?? "border-slate-700"}`}>
             <div className="mb-3 flex items-start justify-between gap-3">
               <div className="flex items-center gap-2">
-                <span className={`rounded-md px-2 py-1 text-[10px] font-black uppercase tracking-wide ${rank?.badge ?? "bg-slate-700 text-slate-200"}`}>{rank?.label ?? `Top ${index + 1}`}</span><span className={`rounded px-2 py-1 text-[10px] font-semibold ${plan.status === "ACTIVE" ? "bg-emerald-950 text-emerald-200" : "bg-amber-950 text-amber-200"}`}>{plan.status === "ACTIVE" ? (isInEntryZone(plan) ? "Підтверджено · у зоні" : "Підтверджено") : (isInEntryZone(plan) ? "У зоні · не підтверджено" : "Очікування")}</span>
+                <span className={`rounded-md px-2 py-1 text-[10px] font-black uppercase tracking-wide ${rank?.badge ?? "bg-slate-700 text-slate-200"}`}>{rank?.label ?? `Top ${position + 1}`}</span><span className={`rounded px-2 py-1 text-[10px] font-semibold ${plan.status === "ACTIVE" ? "bg-emerald-950 text-emerald-200" : "bg-amber-950 text-amber-200"}`}>{plan.status === "ACTIVE" ? (isInEntryZone(plan) ? "Підтверджено · у зоні" : "Підтверджено") : (isInEntryZone(plan) ? "У зоні" : "Очікування")}</span>
                 <h3 className="text-lg font-black">{plan.symbol}</h3>
               </div>
               <span className={`rounded-full px-2 py-1 text-xs font-bold ${isLong ? "bg-emerald-950 text-emerald-300" : "bg-rose-950 text-rose-300"}`}>{plan.direction}</span>
@@ -135,10 +145,11 @@ export default function MarketScanner() {
             <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950/70 p-3"><div className="flex items-center justify-between gap-2"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Пояснення сценарію</p>{plan.explanationSource === "ai" ? <span className="rounded bg-violet-400/10 px-1.5 py-0.5 text-[9px] font-bold text-violet-300">AI</span> : <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[9px] font-bold text-slate-400">ТЕХНІЧНЕ</span>}</div><p className="mt-1 text-xs leading-relaxed text-slate-200">{plan.summary}</p><p className="mt-2 border-l-2 border-amber-400/70 pl-2 text-[11px] leading-relaxed text-amber-100">Ризик: {plan.caution}</p><p className="mt-2 text-[11px] text-cyan-200">Дія: {plan.nextStep}</p></div>
             <details className="mt-3 rounded-lg bg-slate-950/60 px-3 py-2"><summary className="cursor-pointer text-xs font-semibold text-slate-400">Деталі технічного аналізу</summary><div className="mt-3 flex flex-wrap gap-1.5">{plan.reasons.map((reason) => <span key={reason} className="rounded bg-slate-800 px-2 py-1 text-[11px] text-slate-300">{reason}</span>)}</div></details>
             <p className="mt-3 text-xs text-amber-200">Інвалідація: {plan.invalidation}</p>
-            <button onClick={() => openPlan(plan)} className={`mt-4 w-full rounded-lg px-4 py-2 text-sm font-bold ${index === 0 ? "bg-emerald-400 text-slate-950 hover:bg-emerald-300" : "bg-slate-800 text-slate-100 hover:bg-slate-700"}`}>{index === 0 ? "Переглянути сценарій →" : "Відкрити план"}</button>
+            <button onClick={() => openPlan(plan)} className={`mt-4 w-full rounded-lg px-4 py-2 text-sm font-bold ${position === 0 ? "bg-emerald-400 text-slate-950 hover:bg-emerald-300" : "bg-slate-800 text-slate-100 hover:bg-slate-700"}`}>{position === 0 ? "Переглянути сценарій →" : "Відкрити план"}</button>
           </article>;
         })}
-      </div>
+        </div>
+      </section>)}
     </section>}
   </main>;
 }
