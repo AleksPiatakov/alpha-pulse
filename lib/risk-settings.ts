@@ -25,16 +25,32 @@ export function normalizeRiskSettings(input: Partial<RiskSettings> | null | unde
   };
 }
 
-export function calculatePosition(input: { balance: number; activeCount: number; settings: RiskSettings; entryPrice: number; stopLoss: number; takeProfit: number }) {
+export function calculatePosition(input: {
+  balance: number; activeCount: number; settings: RiskSettings;
+  entryPrice: number; stopLoss: number; takeProfit: number;
+  availableBalance?: number;
+}) {
   const { balance, activeCount, settings, entryPrice, stopLoss, takeProfit } = input;
-  const riskPerPlan = balance * settings.riskPercent / 100;
-  const totalRiskCap = balance * settings.maxTotalRiskPercent / 100;
+  // Cap notional to available USDT (1x conservative assumption); leverage is not inferred.
+  // Clients must never substitute a guessed balance when authorizing an order.
+  const available = Number.isFinite(input.availableBalance) && (input.availableBalance ?? 0) >= 0
+    ? input.availableBalance! : balance;
+  const valid = [balance, available, entryPrice, stopLoss, takeProfit].every(Number.isFinite) &&
+    balance > 0 && available > 0 && entryPrice > 0 && stopLoss > 0 && takeProfit > 0;
+  const riskPerPlan = valid ? balance * settings.riskPercent / 100 : 0;
+  const totalRiskCap = valid ? balance * settings.maxTotalRiskPercent / 100 : 0;
   const remainingPortfolioRisk = Math.max(0, totalRiskCap - activeCount * riskPerPlan);
   const allowedRisk = Math.min(riskPerPlan, remainingPortfolioRisk);
-  const stopDistance = Math.abs(entryPrice - stopLoss);
-  const quantity = stopDistance > 0 ? allowedRisk / stopDistance : 0;
+  const stopDistance = valid ? Math.abs(entryPrice - stopLoss) : 0;
+  const quantityByRisk = stopDistance > 0 ? allowedRisk / stopDistance : 0;
+  const quantityByMargin = valid ? available / entryPrice : 0;
+  const quantity = Math.max(0, Math.min(quantityByRisk, quantityByMargin));
   const notional = quantity * entryPrice;
+  const actualRisk = quantity * stopDistance;
   const potentialProfit = quantity * Math.abs(takeProfit - entryPrice);
   const slotsRemaining = Math.max(0, settings.maxPositions - activeCount);
-  return { riskPerPlan, totalRiskCap, remainingPortfolioRisk, allowedRisk, stopDistance, quantity, notional, potentialProfit, slotsRemaining, canOpen: slotsRemaining > 0 && allowedRisk >= 0.01 && quantity > 0 };
+  const canOpen = valid && slotsRemaining > 0 && actualRisk >= 0.01 && quantity > 0;
+  return { riskPerPlan, totalRiskCap, remainingPortfolioRisk, allowedRisk, stopDistance,
+    quantity, notional, actualRisk, potentialProfit, slotsRemaining,
+    cappedByMargin: quantityByMargin < quantityByRisk, availableBalance: available, canOpen };
 }
