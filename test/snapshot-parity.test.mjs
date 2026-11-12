@@ -34,12 +34,12 @@ test("independent snapshot comparison is deterministic and requires no network",
   assert.equal(a.scannerMatches, a.tickerReference === null);
 });
 test("ticker vs 30m close reference are explicitly separated", () => {
-  const sealed=fixture("170");
+  const sealed=fixture("145");
   const quote=evaluateSnapshotReference(sealed,"ticker-reference");
   const closed=evaluateSnapshotReference(sealed,"closed-30m-reference");
   assert.ok(quote);
   assert.ok(closed);
-  assert.equal(quote.priceReference,170);
+  assert.equal(quote.priceReference,145);
   assert.equal(closed.priceReference,135.6);
   assert.ok(compareFrozenMarketPlan(sealed,null).closeModeDifferences.includes("priceReference"));
 });
