@@ -12,7 +12,6 @@ function ema(values: number[], period: number) {
   for (const price of values.slice(period)) average += alpha * (price - average);
   return average;
 }
-const directionLabel = (direction: PlanDirection) => direction === "LONG" ? "вище" : "нижче";
 
 function atr(candles: Candle[]) {
   const recent = candles.slice(-15);
@@ -129,7 +128,7 @@ async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null):
     pivotDaily: dPivot !== null, hasTargetLevel: hasDailyTarget,
   });
   const { score } = quality;
-  const caution = relativeVolume >= 1.2 ? "Усі три таймфрейми узгоджені, але Limit-зона може не бути протестована." : "Напрямок узгоджений, але обсяг слабкий: не ставте заявку без повторної автооцінки.";
+  const caution = quality.status === "ACTIVE" ? "Навіть узгоджені технічні умови не гарантують виконання Limit-заявки або прибутку." : `Непідтверджено: ${quality.checks.slice(0, 2).join("; ") || "потрібна повторна перевірка"}.`;
   return {
     id: `${ticker.symbol}-${direction}-${Math.round(entry * 1e6)}`,
     symbol: ticker.symbol,
@@ -145,7 +144,7 @@ async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null):
     takeProfit2: roundedTarget,
     riskReward: Number(actualRR.toFixed(2)),
     expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
-    reasons: [`4h тренд: ціна ${directionLabel(direction)} EMA20 і EMA50`, `1h структура: ціна ${directionLabel(direction)} EMA20 і EMA50`, `30m підтвердження входу: ${direction}`, hasDailyTarget ? `TP обмежено денним swing-рівнем` : `Ціль попередня: денний рівень не підтверджений`, `24h імпульс ${(change * 100).toFixed(2)}% · закритий 1h обсяг ${relativeVolume.toFixed(1)}× · до входу ${entryDistanceAtr.toFixed(2)} ATR`, ...quality.checks],
+    reasons: [`4h EMA: ${direction4h ?? "без напрямку"}`, `1h EMA: ${direction1h ?? "без напрямку"}`, `30m EMA: ${direction30m ?? "без напрямку"}`, hasDailyTarget ? `TP обмежено денним swing-рівнем` : `Ціль попередня: денний рівень не підтверджений`, `24h імпульс ${(change * 100).toFixed(2)}% · закритий 1h обсяг ${relativeVolume.toFixed(1)}× · до входу ${entryDistanceAtr.toFixed(2)} ATR`, ...quality.checks],
     summary: `${quality.status === "ACTIVE" ? "Технічні умови узгоджені" : "Сценарій спостереження"} ${direction}. Очікується Limit-рівень ${entryPrice}.`,
     caution,
     nextStep: quality.status === "ACTIVE" ? "Перевірте актуальний план і ризик перед Demo-заявкою." : "Дочекайтеся додаткового підтвердження або випробуйте сценарій у Demo.",
