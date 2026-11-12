@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { TradePlan } from "@/lib/trading";
+import { comparePlanPriority, isAtEntryZone } from "@/lib/plan-ranking";
 
 type RejectionCounts = Record<"candles" | "trend" | "volume" | "momentum" | "distance" | "prices" | "daily_level" | "reward_risk" | "error", number>;
 type ScanResponse = { success: boolean; scanned?: number; eligible?: number; analyzed?: number; plans?: TradePlan[]; covered?: number; category?: string; rejectionCounts?: RejectionCounts; generatedAt?: string; error?: string; universePages?: number; universeInstruments?: number; coveragePercent?: number; cycleCompleted?: boolean };
@@ -15,12 +16,7 @@ const rejectionLabels: Array<[keyof RejectionCounts, string]> = [
   ["error", "Помилка отримання даних"],
 ];
 const price = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 6 })}`;
-const isInEntryZone = (plan: TradePlan) =>
-  Number.isFinite(plan.currentPrice) &&
-  Number.isFinite(plan.entryLow) &&
-  Number.isFinite(plan.entryHigh) &&
-  plan.currentPrice >= Math.min(plan.entryLow, plan.entryHigh) &&
-  plan.currentPrice <= Math.max(plan.entryLow, plan.entryHigh);
+const isInEntryZone = isAtEntryZone;
 
 const rankStyles = [
   { label: "Top 1", border: "border-emerald-400/80 shadow-emerald-500/10", badge: "bg-emerald-400 text-slate-950", accent: "text-emerald-300" },
@@ -60,15 +56,12 @@ export default function MarketScanner() {
   }, [refresh]);
 
   // Confirmed and in-zone are independent attributes: never rank an unconfirmed setup above a confirmed one solely for proximity.
-  const byQuality = (a: TradePlan, b: TradePlan) =>
-    Number(Boolean(b.qualityGate?.passed)) - Number(Boolean(a.qualityGate?.passed)) ||
-    b.score - a.score || b.riskReward - a.riskReward || a.symbol.localeCompare(b.symbol);
   const confirmedPlans = plans.filter((plan) => plan.status === "ACTIVE")
-    .sort((a, b) => Number(isInEntryZone(b)) - Number(isInEntryZone(a)) || byQuality(a, b));
+    .sort(comparePlanPriority);
   const zonePlans = plans.filter((plan) => plan.status !== "ACTIVE" && isInEntryZone(plan))
-    .sort(byQuality);
+    .sort(comparePlanPriority);
   const waitingPlans = plans.filter((plan) => plan.status !== "ACTIVE" && !isInEntryZone(plan))
-    .sort(byQuality);
+    .sort(comparePlanPriority);
   const featuredCount = confirmedPlans.length + zonePlans.length;
   const groups = [
     { key: "confirmed", title: "Підтверджені", items: confirmedPlans, offset: 0 },
