@@ -94,7 +94,7 @@ async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null):
     caution,
     nextStep: quality.status === "ACTIVE" ? "Перевірте актуальний план і ризик перед Demo-заявкою." : "Дочекайтеся додаткового підтвердження або випробуйте сценарій у Demo.",
     explanationSource: "rule",
-    invalidation: direction === "LONG" ? `1h закриття нижче ${roundPrice(stopLoss)}` : `1h закриття вище ${roundPrice(stopLoss)}`,
+    invalidation: direction === "LONG" ? `1h закриття нижче ${roundedStop}` : `1h закриття вище ${roundedStop}`,
     status: quality.status,
   };
 }
