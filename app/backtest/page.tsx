@@ -13,7 +13,8 @@ type TestResult = {
   success: boolean; symbol?: string; signals?: number; unfilled?: number; filled?: number;
   wins?: number; winRate?: number | null; totalNetR?: number; averageNetR?: number | null;
   maxDrawdownR?: number; from?: number | null; to?: number | null;
-  periods?: PeriodStats[]; warnings?: string[]; partialHistory?: boolean; error?: string;
+  periods?: PeriodStats[]; diagnostics?: Array<{ label: string; trades: number; wins: number; winRate: number | null; averageNetR: number | null; totalNetR: number; maxDrawdownR: number }>;
+  warnings?: string[]; partialHistory?: boolean; error?: string;
 };
 type ResultMap = Partial<Record<SymbolName, TestResult>>;
 
@@ -108,6 +109,18 @@ export default function BacktestComparisonPage() {
               <p className="mt-1 text-slate-400">Середнє: {number(period.averageNetR, 3)} R · Сума: {number(period.totalNetR)} R · Просідання: {number(period.maxDrawdownR)} R</p>
             </div>)}
           </div>
+          {!!result.diagnostics?.length && <details className="mt-3 rounded-lg border border-slate-800 p-3 text-xs">
+            <summary className="cursor-pointer font-semibold text-slate-200">Діагностика причин результатів · напрямок, обсяг, відстань, тренд</summary>
+            <p className="my-2 text-slate-400">Групи сформовано з уже виконаних історичних угод. Це опис даних, а не підтверджені правила для майбутніх входів.</p>
+            <div className="overflow-x-auto"><table className="w-full min-w-[550px] text-left">
+              <thead className="text-slate-500"><tr><th className="py-2">Група</th><th>Угод</th><th>Win rate</th><th>Середнє R</th><th>Сума R</th><th>Просідання R</th></tr></thead>
+              <tbody>{result.diagnostics.map((item) => <tr key={item.label} className="border-t border-slate-800">
+                <td className="py-2">{item.label}</td><td>{item.trades}</td><td>{number(item.winRate, 1)}%</td>
+                <td className={(item.averageNetR ?? 0) < 0 ? "text-rose-300" : "text-emerald-300"}>{number(item.averageNetR, 3)}</td>
+                <td>{number(item.totalNetR)}</td><td>{number(item.maxDrawdownR)}</td>
+              </tr>)}</tbody>
+            </table></div>
+          </details>}
           {!!result.warnings?.length && <p className="mt-3 text-xs text-amber-300">{result.warnings.join(" ")}</p>}
         </section>;
       })}
