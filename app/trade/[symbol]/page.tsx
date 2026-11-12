@@ -9,6 +9,8 @@ import { TradingChart } from "@/app/components/TradingChart";
 
 type AccountSnapshot = { balance: number; activeCount: number; source: string };
 type ScanResponse = { success?: boolean; plans?: TradePlan[]; error?: string };
+type BacktestData = { success: boolean; count?: number; wins?: number; winRate?: number | null;
+  averageNetR?: number | null; bars?: number; assumptions?: string[]; error?: string };
 const price = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 6 })}`;
 const money = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 function storedSettings() { try { return normalizeRiskSettings(JSON.parse(localStorage.getItem(RISK_SETTINGS_KEY) || "null")); } catch { return defaultRiskSettings; } }
@@ -25,6 +27,19 @@ function TradePageContent() {
   const [accountError, setAccountError] = useState<string>();
   const [message, setMessage] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [backtest, setBacktest] = useState<BacktestData>();
+  const [backtestBusy, setBacktestBusy] = useState(false);
+  async function loadBacktest() {
+    if (backtestBusy) return;
+    setBacktestBusy(true);
+    try {
+      const response = await fetch(`/api/backtest?symbol=${encodeURIComponent(symbol)}`, { cache: "no-store" });
+      const result = await response.json() as BacktestData;
+      setBacktest(response.ok ? result : { success: false, error: result.error || "Немає даних." });
+    } catch {
+      setBacktest({ success: false, error: "Не вдалося отримати історичні дані." });
+    } finally { setBacktestBusy(false); }
+  }
 
   useEffect(() => {
     const initial = window.setTimeout(() => {
@@ -101,6 +116,22 @@ function TradePageContent() {
             <p className={`rounded-lg px-3 py-2 text-xs ${analysisState === "current" ? "bg-emerald-950/40 text-emerald-100" : "bg-amber-950/40 text-amber-100"}`}>{plan.status === "REVIEW" ? "Попередній Limit-сценарій. Можна випробувати Demo-заявку; сервер повторно перевірить рівні й ризик." : analysisState === "current" ? "Рівні та розрахунок оновлюються автоматично." : analysisState === "not-recommended" ? "Сценарій не в поточному рейтингу. Перед Demo-заявкою сервер перевірить пару повторно." : "Автоаналіз недоступний. Сервер перевірить пару перед Demo-заявкою."}</p>
             <div className="grid grid-cols-2 gap-3 border-y border-slate-800 py-4 text-sm"><Stat label="Ризик" value={money(sizing?.allowedRisk ?? 0)} accent="text-rose-300" /><Stat label="Обсяг" value={(sizing?.quantity ?? 0).toLocaleString(undefined, { maximumFractionDigits: 5 })} /><Stat label="Номінал" value={money(sizing?.notional ?? 0)} accent="text-cyan-300" /><Stat label="Вільні слоти" value={`${sizing?.slotsRemaining ?? 0}/${settings.maxPositions}`} /></div>
             <details className="group rounded-lg bg-slate-950/70 p-3"><summary className="cursor-pointer text-xs font-semibold text-slate-300">Логіка та умова скасування</summary><div className="mt-3 space-y-3"><div className="flex flex-wrap gap-1.5">{plan.reasons.map((reason) => <span key={reason} className="rounded bg-slate-800 px-2 py-1 text-[11px] text-slate-300">{reason}</span>)}</div><p className="text-xs leading-relaxed text-amber-100">Скасувати: {plan.invalidation}</p></div></details>
+            <details className="rounded-lg bg-slate-950/70 p-3">
+              <summary className="cursor-pointer text-xs font-semibold text-slate-300">Історична діагностика 1h</summary>
+              <button type="button" onClick={() => void loadBacktest()} disabled={backtestBusy}
+                className="mt-3 rounded border border-slate-700 px-3 py-1.5 text-xs text-slate-200 disabled:opacity-50">
+                {backtestBusy ? "Перевіряю…" : "Перевірити на історії Bybit"}
+              </button>
+              {backtest && <div className="mt-3 space-y-2 text-xs text-slate-300">
+                {backtest.success
+                  ? <p>Угод: {backtest.count} · Прибуткових: {backtest.wins} · Частка: {backtest.winRate ?? "—"}% · Середнє: {backtest.averageNetR ?? "—"} R</p>
+                  : <p className="text-amber-200">{backtest.error}</p>}
+                <p className="text-amber-200">Це окремий спрощений тест 1h, НЕ перевірка поточного багатотаймфреймового алгоритму.</p>
+                {backtest.assumptions && <ul className="list-inside list-disc space-y-1 text-slate-400">
+                  {backtest.assumptions.map((item) => <li key={item}>{item}</li>)}
+                </ul>}
+              </div>}
+            </details>
             {accountError && <p className="text-xs text-amber-200">Bybit: {accountError}</p>}
             {!sizing?.canOpen && <p className="rounded-lg border border-amber-900 bg-amber-950/30 p-3 text-xs text-amber-100">Досягнуто ліміту позицій або сумарного ризику.</p>}
             <p className="text-xs leading-relaxed text-slate-500">GTC Limit на {price(plan.entryPrice)} · не виконується по Market.</p>
