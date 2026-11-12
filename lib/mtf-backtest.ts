@@ -1,6 +1,6 @@
-import { evaluateScenarioQuality } from "./scenario-quality.ts";
-import { evaluateIntradayPlan, INTRADAY_POLICY_V1 } from "./intraday-quality.ts";
-import { emaBars, atrBars, trendBars, nearestSwingLevel, nearestAcrossTimeframes, stopFromAtr, structuralTarget, isCompletedBar, roundedPlanLevels } from "./technical-plan-core.ts";
+import { calculatePlanningLevels, assessPlanningLevels } from "./trade-planning-engine.ts";
+import { INTRADAY_POLICY_V1 } from "./intraday-quality.ts";
+import { emaBars, atrBars, trendBars, nearestSwingLevel, isCompletedBar } from "./technical-plan-core.ts";
 
 export type ReplayBar = {
   time: number; open: number; high: number; low: number; close: number;
@@ -149,31 +149,25 @@ function evaluateAt(history: ReplayTimeframes, variant: ReplayVariant, tickSize?
   const p60 = nearestSwingLevel(h60, direction, price);
   const p240 = nearestSwingLevel(h240, direction, price);
   const pd = nearestSwingLevel(daily, direction, price);
-  const rawEntry = nearestAcrossTimeframes([p30, p60, p240, pd], direction);
-  if (rawEntry === null) return null;
-  const distanceAtr = Math.abs(price - rawEntry) / a30;
-  const rawStop = stopFromAtr(direction, rawEntry, a60, a30);
-  if (!(rawEntry > 0 && rawStop > 0)) return null;
-  const rawTarget = structuralTarget(direction, rawEntry, rawStop, daily);
-  if (rawTarget === null || rawTarget <= 0) return null;
-  // Replay uses the same decimal rounding and post-rounding R:R as the live scanner.
-  // This still does not model instrument tickSize, spread, or the live ticker price.
-  const levels = roundedPlanLevels(direction, rawEntry, rawStop, rawTarget, tickSize);
-  if (!levels || levels.rr < 0.5) return null;
-  const { entry, stop, target, rr } = levels;
-  const quality = evaluateScenarioQuality({
-    direction4h, direction1h, direction30m, relativeVolume, change24h: change,
-    turnover24h, rewardRisk: rr, distanceAtr,
-    pivot1h: p60 !== null, pivot4h: p240 !== null, pivotDaily: pd !== null,
-    hasTargetLevel: true,
+  const levels = calculatePlanningLevels({
+    direction, currentPrice: price, atr30m: a30, atr1h: a60,
+    supportLevels: [p30, p60, p240, pd], dailyBars: daily, tickSize,
+  });
+  if (!levels || !levels.confirmedTarget || levels.rewardRisk < 0.5) return null;
+  const { entry, stop, target } = levels;
+  const distanceAtr = levels.distanceAtr, rr = levels.rewardRisk;
+  const { scenario: quality, gate } = assessPlanningLevels({
+    direction, levels, atr30m: a30, tickSize,
+    quality: {
+      direction4h, direction1h, direction30m, relativeVolume,
+      change24h: change, turnover24h,
+      pivot1h: p60 !== null, pivot4h: p240 !== null, pivotDaily: pd !== null,
+    },
   });
   const atr4h = atrBars(h240);
   const trendStrengthAtr = atr4h > 0 ? Math.abs(h240.at(-1)!.close - emaBars(h240, 50)) / atr4h : 0;
   if (quality.status !== "ACTIVE") return null;
-  if (variant === "intraday-quality" && !evaluateIntradayPlan({
-    direction, entry, stop, target, tickSize, atr30m: a30,
-    distanceAtr, score: quality.score, readiness: quality.confirmedConditions, rewardRisk: rr,
-  }).accepted) return null;
+  if (variant === "intraday-quality" && !gate.accepted) return null;
   if (!passesExperimentFilter(variant, { distanceAtr, trendStrengthAtr, relativeVolume })) return null;
   return {
     direction, entry, stop, target,
