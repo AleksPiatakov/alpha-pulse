@@ -61,40 +61,41 @@ async function candlesFor(symbol: string, interval: Interval) {
   return closed.length >= 60 ? closed : null;
 }
 
-async function makePlan(ticker: Ticker): Promise<TradePlan | null> {
+export type FilterReason = "candles" | "trend" | "volume" | "momentum" | "distance" | "prices" | "daily_level" | "reward_risk" | "error";
+async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null): Promise<TradePlan | null> {
   const [candles30, candles1h, candles4h, dailyCandles] = await Promise.all([candlesFor(ticker.symbol, "30"), candlesFor(ticker.symbol, "60"), candlesFor(ticker.symbol, "240"), candlesFor(ticker.symbol, "D")]);
-  if (!candles30 || !candles1h || !candles4h || !dailyCandles) return null;
+  if (!candles30 || !candles1h || !candles4h || !dailyCandles) return reject("candles");
   const price = Number(ticker.lastPrice), change = Number(ticker.price24hPcnt);
   const direction4h = trend(candles4h, price), direction1h = trend(candles1h, price), direction30m = trend(candles30, price);
-  if (!Number.isFinite(price) || !direction4h || direction4h !== direction1h || direction1h !== direction30m) return null;
+  if (!Number.isFinite(price) || price <= 0 || !direction4h || direction4h !== direction1h || direction1h !== direction30m) return reject("trend");
   const direction = direction1h;
   const volatility1h = atr(candles1h), volatility30m = atr(candles30);
   const averageVolume = candles1h.slice(-31, -1).reduce((sum, candle) => sum + Number(candle[5]), 0) / 30;
-  if (averageVolume <= 0) return null;
+  if (averageVolume <= 0) return reject("volume");
   const relativeVolume = Number(candles1h.at(-1)?.[5] ?? 0) / averageVolume;
   const entryEma30m = ema(candles30.map((candle) => Number(candle[4])), 20);
-  if (!Number.isFinite(volatility1h) || volatility1h <= 0 || !Number.isFinite(volatility30m) || volatility30m <= 0 || !Number.isFinite(relativeVolume) || relativeVolume < 0.65) return null;
-  if ((direction === "LONG" && change <= .003) || (direction === "SHORT" && change >= -.003)) return null;
+  if (!Number.isFinite(volatility1h) || volatility1h <= 0 || !Number.isFinite(volatility30m) || volatility30m <= 0 || !Number.isFinite(relativeVolume) || relativeVolume < 0.65) return reject("volume");
+  if ((direction === "LONG" && change <= .003) || (direction === "SHORT" && change >= -.003)) return reject("momentum");
   const entry = direction === "LONG" ? Math.min(entryEma30m, price - volatility30m * .25) : Math.max(entryEma30m, price + volatility30m * .25);
   const entryDistanceAtr = Math.abs(price - entry) / volatility30m;
-  if (!Number.isFinite(entryDistanceAtr) || entryDistanceAtr > 2.5) return null;
+  if (!Number.isFinite(entryDistanceAtr) || entryDistanceAtr > 2.5) return reject("distance");
   const zoneHalfWidth = volatility30m * .45;
   const risk = Math.max(volatility1h * 1.25, volatility30m * 2);
   const stopLoss = direction === "LONG" ? entry - risk : entry + risk;
-  if (!(entry > 0 && stopLoss > 0 && Number.isFinite(entry) && Number.isFinite(stopLoss))) return null;
+  if (!(entry > 0 && stopLoss > 0 && Number.isFinite(entry) && Number.isFinite(stopLoss))) return reject("prices");
   const rawTakeProfit2 = direction === "LONG" ? entry + risk * 2.4 : entry - risk * 2.4;
   const structural = structuralTarget(direction, entry, stopLoss, dailyCandles);
-  if (structural === null) return null;
+  if (structural === null) return reject("daily_level");
   const takeProfit2 = direction === "LONG" ? Math.min(rawTakeProfit2, structural) : Math.max(rawTakeProfit2, structural);
   const entryPrice = roundPrice(entry);
   const roundedStop = roundPrice(stopLoss);
   const roundedTarget = roundPrice(takeProfit2);
-  if (!(roundedTarget > 0 && Number.isFinite(roundedTarget))) return null;
+  if (!(roundedTarget > 0 && Number.isFinite(roundedTarget))) return reject("prices");
   const actualRisk = Math.abs(entryPrice - roundedStop);
   const actualReward = direction === "LONG" ? roundedTarget - entryPrice : entryPrice - roundedTarget;
-  if (!(actualRisk > 0 && actualReward > 0)) return null;
+  if (!(actualRisk > 0 && actualReward > 0)) return reject("reward_risk");
   const actualRR = actualReward / actualRisk;
-  if (actualRR < 1.5) return null;
+  if (actualRR < 1.5) return reject("reward_risk");
   // Heuristic ranking, not an estimated probability of a profitable trade.
   // All candidates already have aligned 4h/1h/30m trends and R:R >= 1.5.
   const momentumPoints = Math.min(Math.abs(change) * 400, 12);
@@ -133,11 +134,17 @@ export async function scanTechnicalPlans() {
   const data = await response.json() as { retCode: number; retMsg?: string; result?: { list?: Ticker[] } };
   if (data.retCode !== 0 || !data.result?.list) throw new Error(data.retMsg || "Не вдалося отримати ринок Bybit.");
   const eligible = data.result.list.filter((ticker) => ticker.symbol.endsWith("USDT") && Number(ticker.turnover24h) >= 20_000_000);
-  const analyzed = eligible.sort((a, b) => Number(b.turnover24h) - Number(a.turnover24h)).slice(0, 18);
-  const results = await Promise.allSettled(analyzed.map(makePlan));
+  const analyzed = eligible.sort((a, b) => Number(b.turnover24h) - Number(a.turnover24h)).slice(0, 24);
+  const rejectionCounts: Record<FilterReason, number> = {
+    candles: 0, trend: 0, volume: 0, momentum: 0,
+    distance: 0, prices: 0, daily_level: 0, reward_risk: 0, error: 0,
+  };
+  const results = await Promise.allSettled(analyzed.map((ticker) =>
+    makePlan(ticker, (reason) => { rejectionCounts[reason]++; return null; })));
+  rejectionCounts.error += results.filter((r) => r.status === "rejected").length;
   const plans = results.flatMap((r) => r.status === "fulfilled" && r.value ? [r.value] : [])
     .sort((a, b) => b.score - a.score || b.riskReward - a.riskReward || a.symbol.localeCompare(b.symbol))
     .slice(0, 6);
-  return { plans, scanned: data.result.list.length, eligible: eligible.length, analyzed: analyzed.length };
+  return { plans, scanned: data.result.list.length, eligible: eligible.length, analyzed: analyzed.length, rejectionCounts };
 }
 
