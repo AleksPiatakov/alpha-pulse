@@ -163,6 +163,15 @@ export async function GET(request: Request) {
         totalNetR: run.totalNetR, averageNetR: run.averageNetR,
         winRate: run.winRate, maxDrawdownR: run.maxDrawdownR, periods: run.periods, trades: run.trades };
     }) : undefined;
+    // These stress runs share the *same frozen candles and tick metadata* with baseline.
+    const conservativeExperiments = experimental && tickSize !== undefined
+      ? REPLAY_VARIANTS.map(({ key, label }) => {
+        const run = replayMultiTimeframeStrategy(raw, undefined, key, tickSize, "conservative");
+        return { key, label, signals: run.signals, filled: run.filled, unfilled: run.unfilled,
+          totalNetR: run.totalNetR, averageNetR: run.averageNetR,
+          winRate: run.winRate, maxDrawdownR: run.maxDrawdownR,
+          periods: run.periods, trades: run.trades, assumptions: run.assumptions };
+      }) : undefined;
     const payload = {
       success: true, symbol, warnings, partialHistory: warnings.length > 0,
       comparisonCutoff: cutoff, fixedComparison: pinned, tickSize: tickSize ?? null,
@@ -174,7 +183,7 @@ export async function GET(request: Request) {
         "30": raw["30"].length, "60": raw["60"].length,
         "240": raw["240"].length, D: raw.D.length,
       },
-      ...result, experiments, trades: result.trades,
+      ...result, experiments, conservativeExperiments, trades: result.trades,
     };
     if (cache.size > 50) cache.clear();
     cache.set(cacheKey, { until: Date.now() + 5 * 60_000, payload });
