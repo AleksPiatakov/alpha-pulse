@@ -4,7 +4,7 @@ import { scanTechnicalPlans } from "@/lib/market-scan";
 
 export async function GET() {
   try {
-    const { plans, scanned, eligible, analyzed } = await scanTechnicalPlans();
+    const { plans, scanned, eligible, analyzed, rejectionCounts } = await scanTechnicalPlans();
     const ai = await createAiExplanations(plans);
     const enrichedPlans = plans.map((plan) =>
       ai.explanations[plan.id]
@@ -12,7 +12,7 @@ export async function GET() {
         : plan
     );
     return NextResponse.json({
-      success: true, scanned, eligible, analyzed,
+      success: true, scanned, eligible, analyzed, rejectionCounts,
       plans: enrichedPlans, aiStatus: ai.status,
       generatedAt: new Date().toISOString(),
     });
