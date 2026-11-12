@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { PUBLIC_BYBIT_URL } from "@/lib/trading";
-import { replayMultiTimeframeStrategy, type ReplayBar, type ReplayTimeframes } from "@/lib/mtf-backtest";
+import { replayMultiTimeframeStrategy, REPLAY_VARIANTS, type ReplayBar, type ReplayTimeframes } from "@/lib/mtf-backtest";
 
 const symbolPattern = /^[A-Z0-9]{3,24}USDT$/;
 type BybitCandle = [string, string, string, string, string, string, string];
@@ -81,11 +81,14 @@ async function barsFor(symbol: string, interval: Interval, now: number): Promise
 }
 
 export async function GET(request: Request) {
-  const symbol = (new URL(request.url).searchParams.get("symbol") || "").toUpperCase();
+  const params = new URL(request.url).searchParams;
+  const symbol = (params.get("symbol") || "").toUpperCase();
+  const experimental = params.get("experiment") === "1";
   if (!symbolPattern.test(symbol)) {
     return NextResponse.json({ success: false, error: "Некоректний інструмент." }, { status: 400 });
   }
-  const cached = cache.get(symbol);
+  const cacheKey = `${symbol}:${experimental ? "experiment" : "standard"}`;
+  const cached = cache.get(cacheKey);
   if (cached && cached.until > Date.now()) return NextResponse.json(cached.payload);
   try {
     const now = Date.now();
@@ -95,18 +98,25 @@ export async function GET(request: Request) {
     if (halfHour.length < 150 || hourly.length < 60 || fourHour.length < 60 || daily.length < 60) {
       throw Error("Недостатньо історії Bybit для чотирьох таймфреймів.");
     }
-    const result = replayMultiTimeframeStrategy({
-      "30": halfHour, "60": hourly, "240": fourHour, D: daily,
-    });
+    const raw = { "30": halfHour, "60": hourly, "240": fourHour, D: daily };
+    const result = replayMultiTimeframeStrategy(raw);
+    // Each hypothesis performs a new replay (with its own pending Limit orders and positions).
+    // Never filter completed baseline trades and mistake that for a real strategy variant.
+    const experiments = experimental ? REPLAY_VARIANTS.map(({ key, label }) => {
+      const run = key === "baseline" ? result : replayMultiTimeframeStrategy(raw, undefined, key);
+      return { key, label, signals: run.signals, filled: run.filled,
+        totalNetR: run.totalNetR, averageNetR: run.averageNetR,
+        winRate: run.winRate, maxDrawdownR: run.maxDrawdownR, periods: run.periods };
+    }) : undefined;
     const payload = {
       success: true, symbol, warnings, partialHistory: warnings.length > 0, pages: loaded.map((item) => item.pages), bars: {
         "30": halfHour.length, "60": hourly.length,
         "240": fourHour.length, D: daily.length,
       },
-      ...result, trades: result.trades.slice(-30),
+      ...result, experiments, trades: result.trades.slice(-30),
     };
     if (cache.size > 50) cache.clear();
-    cache.set(symbol, { until: now + 5 * 60_000, payload });
+    cache.set(cacheKey, { until: now + 5 * 60_000, payload });
     return NextResponse.json(payload);
   } catch (caught) {
     return NextResponse.json({ success: false,
