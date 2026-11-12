@@ -54,7 +54,7 @@ export default function BacktestComparisonPage() {
       exportedAt: new Date().toISOString(),
       symbols: [...SYMBOLS],
       timeframe: ["30m", "1h", "4h", "1D"],
-      note: "Історична модель, не підтвердження майбутньої прибутковості. Результати тестів включають вже переглянуті періоди.",
+      note: "Результати — close-only історична модель. Виявлені розбіжності з live сканером: тікер/закриття 30m, 24h-метрики, джерело Bybit і округлення рівнів. Це не незалежна перевірка торгового алгоритму. Історія раніше переглядалася.",
       results: Object.fromEntries(SYMBOLS.map((symbol) => [symbol, results[symbol] ?? null])),
       experiments: Object.fromEntries(SYMBOLS.map((symbol) => [symbol, experimentResults[symbol]?.experiments ?? null])),
     };
@@ -130,6 +130,7 @@ export default function BacktestComparisonPage() {
         Результати — історична модель, не прогноз прибутку. Кожна пара перевіряється окремо.
         Одна кнопка запускає базовий тест, діагностику і 3 гіпотези. Історія вже переглядалася; нові пари теж є лише дослідницькою вибіркою, не незалежним holdout.
       </p>
+      <p className="mb-3 text-xs text-amber-200">Перевірка відповідності незавершена: історичний тест використовує ціну закриття 30m, тоді як сканер — поточний тікер; 24h показники й округлення також відрізняються. Тому результати описують тестову модель, а не доведену ефективність live-сканера.</p>
       <p className="mb-3 text-xs text-slate-400">Для передачі результатів у ChatGPT натисни «Експорт JSON» і прикріпи отриманий файл до чату — скриншоти не потрібні.</p>
       <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-900/70">
         <table className="w-full min-w-[790px] text-left text-sm">
