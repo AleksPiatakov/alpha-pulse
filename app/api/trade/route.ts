@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { bybitDemoRequest, isDemoTradingEnabled } from "@/lib/trading";
-import { scanTechnicalPlans } from "@/app/api/scan/route";
+import { scanTechnicalPlans } from "@/lib/market-scan";
 import { GET as getDemoAccount } from "@/app/api/account/route";
 
 const symbolPattern = /^[A-Z0-9]{3,24}USDT$/;
