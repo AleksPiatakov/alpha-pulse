@@ -10,6 +10,8 @@ const intervals: Interval[] = ["30", "60", "240", "D"];
 const duration: Record<Interval, number> = {
   "30": 1_800_000, "60": 3_600_000, "240": 14_400_000, D: 86_400_000,
 };
+// Explicit fixed cutoff for reproducible comparative experiments.
+const COMPARISON_END = Date.parse("2026-11-12T00:00:00.000Z");
 const cache = new Map<string, { until: number; payload: unknown }>();
 
 const pagesPerInterval: Record<Interval, number> = { "30": 6, "60": 4, "240": 2, D: 1 };
@@ -44,10 +46,11 @@ async function requestCandles(symbol: string, interval: Interval, end: number | 
   throw Error(previous);
 }
 
-async function barsFor(symbol: string, interval: Interval, now: number): Promise<HistoryLoad> {
+async function barsFor(symbol: string, interval: Interval, cutoff: number, pinned: boolean): Promise<HistoryLoad> {
   const byTime = new Map<number, ReplayBar>();
   const warnings: string[] = [];
-  let end: number | undefined;
+  // Fetch backwards from exactly the same historical boundary on every run.
+  let end: number | undefined = pinned ? cutoff - 1 : undefined;
   let pages = 0;
   for (let page = 0; page < pagesPerInterval[interval]; page++) {
     let list: BybitCandle[];
@@ -68,7 +71,7 @@ async function barsFor(symbol: string, interval: Interval, now: number): Promise
       const time = Number(c[0]);
       if (!Number.isFinite(time) || time < 0) continue;
       oldest = Math.min(oldest, time);
-      if (!isCompletedBar(time, duration[interval], now)) continue;
+      if (!isCompletedBar(time, duration[interval], cutoff)) continue;
       byTime.set(time, {
         time, open: Number(c[1]), high: Number(c[2]), low: Number(c[3]),
         close: Number(c[4]), volume: Number(c[5]), turnover: Number(c[6]),
@@ -81,40 +84,60 @@ async function barsFor(symbol: string, interval: Interval, now: number): Promise
   return { bars: [...byTime.values()].sort((a, b) => a.time - b.time), warnings, pages };
 }
 
+async function instrumentTickSize(symbol: string): Promise<number> {
+  const url = `${PUBLIC_BYBIT_URL}/v5/market/instruments-info?category=linear&symbol=${encodeURIComponent(symbol)}`;
+  const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(15000) });
+  const json = await response.json() as { retCode?: number; retMsg?: string;
+    result?: { list?: Array<{ symbol: string; priceFilter?: { tickSize?: string } }> } };
+  if (!response.ok || json.retCode !== 0) throw Error(`Bybit instrument metadata: ${json.retMsg ?? response.status}`);
+  const rawTick = json.result?.list?.find((item) => item.symbol === symbol)?.priceFilter?.tickSize;
+  const tick = Number(rawTick);
+  if (!rawTick || !Number.isFinite(tick) || !(tick > 0)) throw Error("Bybit не повернув дійсний tickSize контракту.");
+  return tick;
+}
+
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const symbol = (params.get("symbol") || "").toUpperCase();
   const experimental = params.get("experiment") === "1";
+  const pinned = params.get("fixed") === "1";
+  const exchangeTicks = params.get("ticks") === "1";
   if (!symbolPattern.test(symbol)) {
     return NextResponse.json({ success: false, error: "Некоректний інструмент." }, { status: 400 });
   }
-  const cacheKey = `${symbol}:${experimental ? "experiment" : "standard"}`;
+  const cacheKey = `${symbol}:${experimental ? "experiment" : "standard"}:${pinned ? "fixed" : "moving"}:${exchangeTicks ? "tick" : "decimal"}`;
   const cached = cache.get(cacheKey);
   if (cached && cached.until > Date.now()) return NextResponse.json(cached.payload);
   try {
-    const now = Date.now();
-    const loaded = await Promise.all(intervals.map((interval) => barsFor(symbol, interval, now)));
+    const cutoff = pinned ? COMPARISON_END : Date.now();
+    const [loaded, tickSize] = await Promise.all([
+      Promise.all(intervals.map((interval) => barsFor(symbol, interval, cutoff, pinned))),
+      exchangeTicks ? instrumentTickSize(symbol) : Promise.resolve(undefined),
+    ]);
     const [halfHour, hourly, fourHour, daily] = loaded.map((item) => item.bars);
     const warnings = loaded.flatMap((item) => item.warnings);
     if (halfHour.length < 150 || hourly.length < 60 || fourHour.length < 60 || daily.length < 60) {
       throw Error("Недостатньо історії Bybit для чотирьох таймфреймів.");
     }
     const raw = { "30": halfHour, "60": hourly, "240": fourHour, D: daily };
-    const result = replayMultiTimeframeStrategy(raw);
+    const result = replayMultiTimeframeStrategy(raw, undefined, "baseline", tickSize);
     // Each hypothesis performs a new replay (with its own pending Limit orders and positions).
     // Never filter completed baseline trades and mistake that for a real strategy variant.
     const experiments = experimental ? REPLAY_VARIANTS.map(({ key, label }) => {
-      const run = key === "baseline" ? result : replayMultiTimeframeStrategy(raw, undefined, key);
+      const run = key === "baseline" ? result : replayMultiTimeframeStrategy(raw, undefined, key, tickSize);
       return { key, label, signals: run.signals, filled: run.filled,
         totalNetR: run.totalNetR, averageNetR: run.averageNetR,
-        winRate: run.winRate, maxDrawdownR: run.maxDrawdownR, periods: run.periods };
+        winRate: run.winRate, maxDrawdownR: run.maxDrawdownR, periods: run.periods, trades: run.trades };
     }) : undefined;
     const payload = {
-      success: true, symbol, warnings, partialHistory: warnings.length > 0, pages: loaded.map((item) => item.pages), bars: {
+      success: true, symbol, warnings, partialHistory: warnings.length > 0,
+      comparisonCutoff: cutoff, fixedComparison: pinned, tickSize: tickSize ?? null,
+      roundingMode: exchangeTicks ? "bybit-tick-size" : "scanner-decimals",
+      pages: loaded.map((item) => item.pages), bars: {
         "30": halfHour.length, "60": hourly.length,
         "240": fourHour.length, D: daily.length,
       },
-      ...result, experiments, trades: result.trades.slice(-30),
+      ...result, experiments, trades: result.trades,
     };
     if (cache.size > 50) cache.clear();
     cache.set(cacheKey, { until: now + 5 * 60_000, payload });
