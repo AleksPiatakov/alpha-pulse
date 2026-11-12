@@ -2,7 +2,7 @@
  * Strategy Lab research metrics. Each symbol is an independent backtest.
  * Summing R is descriptive only: it is not a portfolio equity curve.
  */
-export type LabTrade = { netR: number; result: "TP" | "SL" | "TIMEOUT"; signalTime: number };
+export type LabTrade = { netR: number; result: "TP" | "SL" | "TIMEOUT"; signalTime: number; entryTime?: number; exitTime?: number };
 export type LabRun = {
   key: string; label: string; filled: number; totalNetR: number;
   averageNetR: number | null; maxDrawdownR: number;
@@ -12,7 +12,8 @@ export type LabRun = {
 export type LabAssessment = {
   trades: number; totalNetR: number; meanR: number | null; profitFactor: number | null;
   stopRate: number | null; firstHalfR: number; secondHalfR: number;
-  profitableSymbols: number; testedSymbols: number; eligibleForDemoReview: false;
+  profitableSymbols: number; testedSymbols: number; medianHoldHours: number | null;
+  eligibleForDemoReview: false;
   reasons: string[];
 };
 export function assessLabRuns(runs: LabRun[]): LabAssessment {
@@ -23,6 +24,15 @@ export function assessLabRuns(runs: LabRun[]): LabAssessment {
   const firstHalfR = runs.reduce((sum, run) => sum + (run.periods?.[0]?.totalNetR ?? 0), 0);
   const secondHalfR = runs.reduce((sum, run) => sum + (run.periods?.[1]?.totalNetR ?? 0), 0);
   const profitableSymbols = runs.filter((run) => run.totalNetR > 0).length;
+  const holdHours = trades
+    .filter((trade) => Number.isFinite(trade.entryTime) && Number.isFinite(trade.exitTime) &&
+      trade.exitTime! >= trade.entryTime!)
+    .map((trade) => (trade.exitTime! - trade.entryTime!) / 3_600_000)
+    .sort((a, b) => a - b);
+  const half = Math.floor(holdHours.length / 2);
+  const medianHoldHours = holdHours.length
+    ? Number((holdHours.length % 2 ? holdHours[half] : (holdHours[half - 1] + holdHours[half]) / 2).toFixed(2))
+    : null;
   const reasons = [
     "Ця вибірка вже використовувалась для розробки: не є незалежним holdout.",
     "Сума R по інструментах не враховує одночасні позиції та кореляції.",
@@ -37,7 +47,8 @@ export function assessLabRuns(runs: LabRun[]): LabAssessment {
     profitFactor: grossLoss > 0 ? Number((grossProfit / grossLoss).toFixed(3)) : null,
     stopRate: trades.length ? Number((100 * trades.filter((trade) => trade.result === "SL").length / trades.length).toFixed(1)) : null,
     firstHalfR: Number(firstHalfR.toFixed(3)), secondHalfR: Number(secondHalfR.toFixed(3)),
-    profitableSymbols, testedSymbols: runs.length, eligibleForDemoReview: false, reasons,
+    profitableSymbols, testedSymbols: runs.length, medianHoldHours,
+    eligibleForDemoReview: false, reasons,
   };
 }
 export const LAB_CANDIDATES = [
@@ -45,4 +56,5 @@ export const LAB_CANDIDATES = [
   { key: "near-entry", label: "A1 · Ближчий вхід", description: "MTF із додатковим фільтром відстані <= 1 ATR", state: "diagnostic" },
   { key: "moderate-trend", label: "A2 · Помірний тренд", description: "MTF із фільтром сили тренду 4h < 1 ATR", state: "diagnostic" },
   { key: "lower-volume", label: "A3 · Нижчий обсяг", description: "MTF із фільтром відносного обсягу < 1,2", state: "diagnostic" },
+  { key: "intraday-quality", label: "B · Intraday Quality", description: "MTF + суворі умови Entry / SL / TP; Limit до 3 год, позиція до 24 год. Поки лише дослідна гіпотеза.", state: "diagnostic" },
 ] as const;
