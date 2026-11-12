@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { bybitDemoRequest, isDemoTradingEnabled } from "@/lib/trading";
+import { bybitDemoRequest, isDemoTradingEnabled, DEMO_BYBIT_URL } from "@/lib/trading";
+import { parseExecutionRules, validateOrderPrecision } from "@/lib/bybit-execution-rules";
+import type { InstrumentMeta } from "@/lib/bybit-universe";
 import { verifyCurrentTechnicalPlan } from "@/lib/market-scan";
 import { GET as getDemoAccount } from "@/app/api/account/route";
 
@@ -44,6 +46,24 @@ export async function POST(request: Request) {
         plan.riskReward < 0.5) {
       return error("Дані заявки не відповідають поточному серверному плану. Оновіть сторінку.", 409);
     }
+
+    // Independent fresh exchange precision check; no order if metadata is missing.
+    const metaResponse = await fetch(
+      `${DEMO_BYBIT_URL}/v5/market/instruments-info?category=linear&symbol=${encodeURIComponent(symbol)}`,
+      { cache: "no-store", signal: AbortSignal.timeout(12000) },
+    );
+    if (!metaResponse.ok) return error("Bybit: неможливо перевірити точність ордера.", 503);
+    const metadata = await metaResponse.json() as {
+      retCode?: number; result?: { list?: InstrumentMeta[] };
+    };
+    if (metadata.retCode !== 0) return error("Bybit: не вдалося перевірити параметри інструмента.", 503);
+    const instrument = metadata.result?.list?.find((item) => item.symbol === symbol);
+    const rules = parseExecutionRules(instrument);
+    if (!rules) return error("Немає достовірних tickSize/qtyStep для інструмента.", 503);
+    const precisionErrors = validateOrderPrecision({
+      entry: price, stop: stopLoss, target: takeProfit, quantity: qty,
+    }, rules);
+    if (precisionErrors.length) return error(precisionErrors.join(" "), 409);
 
     const accountResponse = await getDemoAccount();
     if (!accountResponse.ok) return error("Неможливо підтвердити Demo-баланс і ризик. Заявку заблоковано.", 503);
