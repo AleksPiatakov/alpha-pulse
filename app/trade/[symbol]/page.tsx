@@ -122,7 +122,11 @@ function TradePageContent() {
               {!!plan.qualityGate?.reasons.length && <p className="mt-1">{plan.qualityGate.reasons.join("; ")}</p>}
             </div>
             <div className="grid grid-cols-2 gap-3 border-y border-slate-800 py-4 text-sm"><Stat label="Ризик" value={money(sizing?.actualRisk ?? 0)} accent="text-rose-300" /><Stat label="Обсяг" value={(sizing?.quantity ?? 0).toLocaleString(undefined, { maximumFractionDigits: 5 })} /><Stat label="Номінал" value={money(sizing?.notional ?? 0)} accent="text-cyan-300" /><Stat label="Вільні слоти" value={`${sizing?.slotsRemaining ?? 0}/${settings.maxPositions}`} /></div>
-            <details className="group rounded-lg bg-slate-950/70 p-3"><summary className="cursor-pointer text-xs font-semibold text-slate-300">Логіка та умова скасування</summary><div className="mt-3 space-y-3"><div className="flex flex-wrap gap-1.5">{plan.reasons.map((reason) => <span key={reason} className="rounded bg-slate-800 px-2 py-1 text-[11px] text-slate-300">{reason}</span>)}</div><p className="text-xs leading-relaxed text-amber-100">Скасувати: {plan.invalidation}</p></div></details>
+            <details className="group rounded-lg bg-slate-950/70 p-3"><summary className="cursor-pointer text-xs font-semibold text-slate-300">Логіка та умова скасування</summary><div className="mt-3 space-y-3"><div className="flex flex-wrap gap-1.5">{plan.reasons.map((reason) => <span key={reason} className="rounded bg-slate-800 px-2 py-1 text-[11px] text-slate-300">{reason}</span>)}</div><div className="space-y-2 text-xs leading-relaxed">
+              <p className="text-amber-100"><strong>Перегляд ідеї до входу:</strong> {plan.lifecycle?.setupReview ?? plan.invalidation}</p>
+              <p className="text-rose-200"><strong>Захисний Stop Loss після входу:</strong> {plan.lifecycle?.stopProtection ?? "Тригер та поточний захист перевіряй безпосередньо в Bybit Demo."}</p>
+              <p className="text-slate-300"><strong>Термін Limit-ордера:</strong> {plan.lifecycle?.pendingLimit ?? "Перевіряй чинність та скасування ордера в Bybit Demo."}</p>
+            </div></div></details>
             <details className="rounded-lg bg-slate-950/70 p-3">
               <summary className="cursor-pointer text-xs font-semibold text-slate-300">Історичний тест 30m / 1h / 4h / 1D</summary>
               <button type="button" onClick={() => void loadBacktest()} disabled={backtestBusy}
