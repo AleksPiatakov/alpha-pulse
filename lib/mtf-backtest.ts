@@ -1,4 +1,5 @@
 import { evaluateScenarioQuality } from "./scenario-quality.ts";
+import { emaBars, atrBars, trendBars, nearestSwingLevel, nearestAcrossTimeframes, stopFromAtr, structuralTarget, rewardRisk } from "./technical-plan-core.ts";
 
 export type ReplayBar = {
   time: number; open: number; high: number; low: number; close: number;
@@ -78,53 +79,6 @@ function historyAt(bars: ReplayBar[], decisionTime: number, duration: number): R
   }
   return bars.slice(Math.max(0, lo - 200), lo);
 }
-function ema(bars: ReplayBar[], period: number): number {
-  const closes = bars.map((b) => b.close);
-  let value = closes.slice(0, period).reduce((a, b) => a + b, 0) / period;
-  const alpha = 2 / (period + 1);
-  for (const close of closes.slice(period)) value += alpha * (close - value);
-  return value;
-}
-function trend(bars: ReplayBar[]): ReplayDirection | null {
-  const fast = ema(bars, 20), slow = ema(bars, 50), price = bars.at(-1)!.close;
-  return price > fast && fast > slow ? "LONG" : price < fast && fast < slow ? "SHORT" : null;
-}
-function atr(bars: ReplayBar[]): number {
-  const last = bars.slice(-15);
-  const trueRanges = last.slice(1).map((b, i) =>
-    Math.max(b.high - b.low, Math.abs(b.high - last[i].close), Math.abs(b.low - last[i].close)));
-  return trueRanges.reduce((a, b) => a + b, 0) / 14;
-}
-function swingLevels(bars: ReplayBar[], direction: ReplayDirection, price: number): number[] {
-  const levels: number[] = [];
-  for (let i = 2; i < bars.length - 2; i++) {
-    const level = direction === "LONG" ? bars[i].low : bars[i].high;
-    const neighbors = [bars[i-2], bars[i-1], bars[i+1], bars[i+2]]
-      .map((b) => direction === "LONG" ? b.low : b.high);
-    if (neighbors.every((n) => direction === "LONG" ? level < n : level > n) &&
-      (direction === "LONG" ? level < price : level > price)) levels.push(level);
-  }
-  return levels;
-}
-function nearest(levels: number[], direction: ReplayDirection): number | null {
-  return levels.length ? direction === "LONG" ? Math.max(...levels) : Math.min(...levels) : null;
-}
-function targetFromDaily(bars: ReplayBar[], direction: ReplayDirection, entry: number, stop: number): number | null {
-  const candidates: number[] = [];
-  for (let i = 2; i < bars.length - 2; i++) {
-    const middle = direction === "LONG" ? bars[i].high : bars[i].low;
-    const neighbors = [bars[i-2], bars[i-1], bars[i+1], bars[i+2]]
-      .map((b) => direction === "LONG" ? b.high : b.low);
-    if (neighbors.every((n) => direction === "LONG" ? middle > n : middle < n) &&
-      (direction === "LONG" ? middle > entry : middle < entry)) candidates.push(middle);
-  }
-  if (!candidates.length) return null;
-  const risk = Math.abs(entry - stop);
-  const ideal = entry + (direction === "LONG" ? 2.4 : -2.4) * risk;
-  const obstacle = direction === "LONG" ? Math.min(...candidates) - 0.05 * risk :
-    Math.max(...candidates) + 0.05 * risk;
-  return direction === "LONG" ? Math.min(ideal, obstacle) : Math.max(ideal, obstacle);
-}
 type Setup = { direction: ReplayDirection; entry: number; stop: number; target: number;
   diagnostics: { score: number; readiness: number; relativeVolume: number; distanceAtr: number;
     rewardRisk: number; trendStrengthAtr: number; entryDelayBars: number } };
@@ -132,10 +86,10 @@ type Setup = { direction: ReplayDirection; entry: number; stop: number; target: 
 function evaluateAt(history: ReplayTimeframes, variant: ReplayVariant): Setup | null {
   const h30 = history["30"], h60 = history["60"], h240 = history["240"], daily = history.D;
   if (h30.length < 60 || h60.length < 60 || h240.length < 60 || daily.length < 60) return null;
-  const direction30m = trend(h30), direction1h = trend(h60), direction4h = trend(h240);
+  const direction30m = trendBars(h30), direction1h = trendBars(h60), direction4h = trendBars(h240);
   if (!direction4h || direction4h !== direction1h || direction1h !== direction30m) return null;
   const direction = direction4h, price = h30.at(-1)!.close;
-  const a30 = atr(h30), a60 = atr(h60);
+  const a30 = atrBars(h30), a60 = atrBars(h60);
   if (!(a30 > 0 && a60 > 0)) return null;
   const volumeAverage = h60.slice(-31, -1).reduce((sum, b) => sum + b.volume, 0) / 30;
   if (!(volumeAverage > 0)) return null;
@@ -143,36 +97,33 @@ function evaluateAt(history: ReplayTimeframes, variant: ReplayVariant): Setup | 
   const previousPrice = h60.at(-25)!.close;
   const change = price / previousPrice - 1;
   const turnover24h = h60.slice(-24).reduce((sum, b) => sum + b.turnover, 0);
-  const p30 = nearest(swingLevels(h30, direction, price), direction);
-  const p60 = nearest(swingLevels(h60, direction, price), direction);
-  const p240 = nearest(swingLevels(h240, direction, price), direction);
-  const pd = nearest(swingLevels(daily, direction, price), direction);
-  const pivots = [p30, p60, p240, pd].filter((x): x is number => x !== null);
-  if (!pivots.length) return null;
-  const entry = nearest(pivots, direction);
+  const p30 = nearestSwingLevel(h30, direction, price);
+  const p60 = nearestSwingLevel(h60, direction, price);
+  const p240 = nearestSwingLevel(h240, direction, price);
+  const pd = nearestSwingLevel(daily, direction, price);
+  const entry = nearestAcrossTimeframes([p30, p60, p240, pd], direction);
   if (entry === null) return null;
   const distanceAtr = Math.abs(price - entry) / a30;
-  const risk = Math.max(a60 * 1.25, a30 * 2);
-  const stop = entry + (direction === "LONG" ? -risk : risk);
+  const stop = stopFromAtr(direction, entry, a60, a30);
   if (!(entry > 0 && stop > 0)) return null;
-  const target = targetFromDaily(daily, direction, entry, stop);
+  const target = structuralTarget(direction, entry, stop, daily);
   if (target === null || target <= 0) return null;
-  const reward = direction === "LONG" ? target - entry : entry - target;
-  if (!(reward > 0)) return null;
+  const rr = rewardRisk(direction, entry, stop, target);
+  if (!(rr > 0)) return null;
   const quality = evaluateScenarioQuality({
     direction4h, direction1h, direction30m, relativeVolume, change24h: change,
-    turnover24h, rewardRisk: reward / Math.abs(stop - entry), distanceAtr,
+    turnover24h, rewardRisk: rr, distanceAtr,
     pivot1h: p60 !== null, pivot4h: p240 !== null, pivotDaily: pd !== null,
     hasTargetLevel: true,
   });
-  const atr4h = atr(h240);
-  const trendStrengthAtr = atr4h > 0 ? Math.abs(h240.at(-1)!.close - ema(h240, 50)) / atr4h : 0;
+  const atr4h = atrBars(h240);
+  const trendStrengthAtr = atr4h > 0 ? Math.abs(h240.at(-1)!.close - emaBars(h240, 50)) / atr4h : 0;
   if (quality.status !== "ACTIVE") return null;
   if (!passesExperimentFilter(variant, { distanceAtr, trendStrengthAtr, relativeVolume })) return null;
   return {
     direction, entry, stop, target,
     diagnostics: { score: quality.score, readiness: quality.confirmedConditions,
-      relativeVolume, distanceAtr, rewardRisk: reward / Math.abs(stop - entry),
+      relativeVolume, distanceAtr, rewardRisk: rr,
       trendStrengthAtr, entryDelayBars: 0 },
   };
 }
