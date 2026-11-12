@@ -55,7 +55,7 @@ export async function createAiExplanations(plans: TradePlan[]): Promise<Result> 
   if (!key) return fallback("MISSING_API_KEY", "Сервер не має OPENAI_API_KEY.");
   const facts = plans.map((p) => ({ id: p.id, symbol: p.symbol, direction: p.direction, score: p.score,
     currentPrice: p.currentPrice, entryZone: [p.entryLow, p.entryHigh], stopLoss: p.stopLoss,
-    takeProfit: p.takeProfit2, riskReward: p.riskReward, technicalFacts: p.reasons, invalidation: p.invalidation }));
+    takeProfit: p.takeProfit2, riskReward: p.riskReward, status: p.status, readiness: p.readiness, technicalFacts: p.reasons, invalidation: p.invalidation }));
   const cacheKey = JSON.stringify({ model, facts });
   if (cache && cache.key === cacheKey && cache.until > Date.now()) return { explanations: cache.explanations, status: { state: "cached", code: "CACHE_HIT", message: "AI-пояснення з кешу.", model } };
   let response: Response;
@@ -66,7 +66,7 @@ export async function createAiExplanations(plans: TradePlan[]): Promise<Result> 
       body: JSON.stringify({
         model, store: false,
         input: [
-          { role: "developer", content: "Пояснюй навчальні Demo Limit-плани українською. Лише надані факти, без обіцянок прибутку та вигаданих індикаторів. Для кожного id: summary — два короткі речення, caution — головний ризик, nextStep — конкретна дія. Не пропускай жоден id. Це не фінансова порада." },
+          { role: "developer", content: "Пояснюй навчальні Bybit Demo Limit-плани українською лише за переданими фактами. Score — евристичний потенціал, НЕ імовірність успіху. Статус ACTIVE означає виконання формальних умов, а REVIEW — непідтверджений сценарій. Для REVIEW обов’язково прямо назви відсутність підтвердження та ключову невиконану умову з readiness.missing; не називай його підтвердженим і не радь негайно відкривати угоду. Для ACTIVE теж не обіцяй прибуток. Для кожного id: summary — два короткі речення, caution — конкретний ризик, nextStep — обережний наступний крок. Без вигаданих показників. Не пропускай id." },
           { role: "user", content: JSON.stringify(facts) },
         ],
         text: { format: { type: "json_schema", name: "trade_explanations", strict: true, schema } },
