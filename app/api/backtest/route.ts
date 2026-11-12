@@ -11,23 +11,43 @@ const duration: Record<Interval, number> = {
 };
 const cache = new Map<string, { until: number; payload: unknown }>();
 
+const pagesPerInterval: Record<Interval, number> = { "30": 6, "60": 4, "240": 2, D: 1 };
+
 async function barsFor(symbol: string, interval: Interval, now: number): Promise<ReplayBar[]> {
-  const limit = interval === "D" ? 200 : 1000;
-  const response = await fetch(
-    `${PUBLIC_BYBIT_URL}/v5/market/kline?category=linear&symbol=${encodeURIComponent(symbol)}&interval=${interval}&limit=${limit}`,
-    { cache: "no-store", signal: AbortSignal.timeout(15000) },
-  );
-  if (!response.ok) throw Error(`Bybit: не отримано свічки ${interval}.`);
-  const data = await response.json() as { retCode: number; result?: { list?: BybitCandle[] }; retMsg?: string };
-  if (data.retCode !== 0 || !Array.isArray(data.result?.list)) {
-    throw Error(data.retMsg || `Немає історії для ${interval}.`);
+  const byTime = new Map<number, ReplayBar>();
+  let end: number | undefined;
+  for (let page = 0; page < pagesPerInterval[interval]; page++) {
+    const params = new URLSearchParams({
+      category: "linear", symbol, interval, limit: "1000",
+    });
+    if (end !== undefined) params.set("end", String(end));
+    const response = await fetch(`${PUBLIC_BYBIT_URL}/v5/market/kline?${params.toString()}`, {
+      cache: "no-store", signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) throw Error(`Bybit: не отримано свічки ${interval} (сторінка ${page + 1}).`);
+    const data = await response.json() as {
+      retCode: number; result?: { list?: BybitCandle[] }; retMsg?: string;
+    };
+    if (data.retCode !== 0 || !Array.isArray(data.result?.list)) {
+      throw Error(data.retMsg || `Немає історії для ${interval}.`);
+    }
+    if (!data.result.list.length) break;
+    let oldest = Infinity;
+    for (const c of data.result.list) {
+      const time = Number(c[0]);
+      if (!Number.isFinite(time) || time < 0) continue;
+      oldest = Math.min(oldest, time);
+      if (time + duration[interval] > now) continue;
+      byTime.set(time, {
+        time, open: Number(c[1]), high: Number(c[2]), low: Number(c[3]),
+        close: Number(c[4]), volume: Number(c[5]), turnover: Number(c[6]),
+      });
+    }
+    if (!Number.isFinite(oldest) || (end !== undefined && oldest >= end)) break;
+    end = oldest - 1; // Cursor always moves backward. Avoid repeated overlapping pages.
+    if (data.result.list.length < 1000) break;
   }
-  const bars = data.result.list.map((c) => ({
-    time: Number(c[0]), open: Number(c[1]), high: Number(c[2]),
-    low: Number(c[3]), close: Number(c[4]),
-    volume: Number(c[5]), turnover: Number(c[6]),
-  })).filter((b) => Number.isFinite(b.time) && b.time + duration[interval] <= now);
-  return bars.sort((a, b) => a.time - b.time);
+  return [...byTime.values()].sort((a, b) => a.time - b.time);
 }
 
 export async function GET(request: Request) {
