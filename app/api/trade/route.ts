@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { bybitDemoRequest, isDemoTradingEnabled } from "@/lib/trading";
-import { scanTechnicalPlans } from "@/lib/market-scan";
+import { verifyCurrentTechnicalPlan } from "@/lib/market-scan";
 import { GET as getDemoAccount } from "@/app/api/account/route";
 
 const symbolPattern = /^[A-Z0-9]{3,24}USDT$/;
@@ -31,8 +31,8 @@ export async function POST(request: Request) {
 
     // The browser cannot authorize prices, stop/target levels or risk on its own.
     // Rebuild the current top plans on the server immediately before the order.
-    const current = await scanTechnicalPlans();
-    const plan = current.plans.find((item) => item.id === planId && item.symbol === symbol);
+    const verified = await verifyCurrentTechnicalPlan(symbol);
+    const plan = verified?.id === planId ? verified : null;
     if (!plan || plan.status !== "ACTIVE" || new Date(plan.expiresAt).getTime() <= Date.now()) {
       return error("Торговий план застарів або більше не входить до актуального відбору.", 409);
     }
