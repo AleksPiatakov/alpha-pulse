@@ -4,8 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { TradePlan } from "@/lib/trading";
+import type { AiStatus } from "@/lib/ai-explanations";
 
-type ScanResponse = { success: boolean; scanned?: number; eligible?: number; analyzed?: number; plans?: TradePlan[]; generatedAt?: string; error?: string };
+type ScanResponse = { success: boolean; scanned?: number; eligible?: number; analyzed?: number; plans?: TradePlan[]; generatedAt?: string; aiStatus?: AiStatus; error?: string };
 const price = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 6 })}`;
 const rankStyles = [
   { label: "★ Top 1 · пріоритет", border: "border-emerald-400/80 shadow-emerald-500/10", badge: "bg-emerald-400 text-slate-950", accent: "text-emerald-300" },
@@ -18,6 +19,7 @@ export default function MarketScanner() {
   const [plans, setPlans] = useState<TradePlan[]>([]);
   const [counts, setCounts] = useState({ scanned: 0, eligible: 0, analyzed: 0 });
   const [updatedAt, setUpdatedAt] = useState<string>();
+  const [aiStatus, setAiStatus] = useState<AiStatus>();
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(true);
 
@@ -28,7 +30,7 @@ export default function MarketScanner() {
       if (!response.ok || !data.success) throw new Error(data.error || "Не вдалося оновити аналіз.");
       setPlans(data.plans ?? []);
       setCounts({ scanned: data.scanned ?? 0, eligible: data.eligible ?? 0, analyzed: data.analyzed ?? 0 });
-      setUpdatedAt(data.generatedAt); setError(undefined);
+      setUpdatedAt(data.generatedAt); setAiStatus(data.aiStatus); setError(undefined);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Помилка сканування."); }
     finally { setLoading(false); }
   }, []);
@@ -47,7 +49,7 @@ export default function MarketScanner() {
   return <main className="min-h-screen bg-slate-950 p-5 text-slate-100 md:p-8">
     <header className="mb-5 flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/70 px-5 py-4 md:flex-row md:items-center md:justify-between">
       <div><div className="flex flex-wrap items-center gap-2"><h1 className="text-3xl font-extrabold text-emerald-400">ALPHA PULSE</h1><span className="rounded-full bg-amber-400/10 px-2 py-1 text-[10px] font-bold tracking-wide text-amber-300">DEMO ONLY</span></div><p className="mt-1 text-sm text-slate-400">6 відкладених сценаріїв · AI-пояснення на основі поточних ринкових даних</p></div>
-      <div className="flex items-center gap-3"><Link href="/settings" className="rounded-lg border border-slate-600 bg-slate-950 px-4 py-2 text-sm font-semibold hover:border-cyan-400">Ризик і позиції</Link><span className="text-xs text-slate-500">Автоаналіз: 30 с</span><button onClick={() => void refresh()} className="rounded-lg border border-slate-600 bg-slate-950 px-4 py-2 text-sm font-semibold hover:border-emerald-400">↻ Оновити</button></div>
+      <div className="flex items-center gap-3"><Link href="/orders" className="rounded-lg border border-slate-600 bg-slate-950 px-4 py-2 text-sm font-semibold hover:border-cyan-400">Активні заявки</Link><Link href="/settings" className="rounded-lg border border-slate-600 bg-slate-950 px-4 py-2 text-sm font-semibold hover:border-cyan-400">Ризик і позиції</Link><span className="text-xs text-slate-500">Автоаналіз: 30 с</span><button onClick={() => void refresh()} className="rounded-lg border border-slate-600 bg-slate-950 px-4 py-2 text-sm font-semibold hover:border-emerald-400">↻ Оновити</button></div>
     </header>
 
     <section className="mb-6 grid grid-cols-2 gap-2 text-xs md:grid-cols-5">
@@ -58,6 +60,7 @@ export default function MarketScanner() {
       <Metric label="Оновлено" value={updatedAt ? new Date(updatedAt).toLocaleTimeString() : "—"} />
     </section>
 
+    {aiStatus && <p role="status" className={`mb-5 rounded-lg border p-3 text-sm ${aiStatus.state === "ok" || aiStatus.state === "cached" ? "border-emerald-800 bg-emerald-950/30 text-emerald-200" : "border-amber-800 bg-amber-950/30 text-amber-200"}`}>AI: {aiStatus.state === "ok" ? "ПРАЦЮЄ" : aiStatus.state === "cached" ? "КЕШ" : aiStatus.state === "no_plans" ? "НЕМАЄ ПЛАНІВ" : "ТЕХНІЧНИЙ РЕЖИМ"} · {aiStatus.message} ({aiStatus.code}) {aiStatus.model ?? ""}</p>}
     {error && <p className="mb-5 rounded-lg border border-red-900 bg-red-950/40 p-3 text-sm text-red-200">{error}</p>}
     {loading ? <p className="py-20 text-center text-slate-400">Будується шість торгових setup-планів…</p> : <section>
       <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
