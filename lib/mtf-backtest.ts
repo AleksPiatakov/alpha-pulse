@@ -1,4 +1,5 @@
 import { evaluateScenarioQuality } from "./scenario-quality.ts";
+import { evaluateIntradayPlan, INTRADAY_POLICY_V1 } from "./intraday-quality.ts";
 import { emaBars, atrBars, trendBars, nearestSwingLevel, nearestAcrossTimeframes, stopFromAtr, structuralTarget, isCompletedBar, roundedPlanLevels } from "./technical-plan-core.ts";
 
 export type ReplayBar = {
@@ -6,7 +7,7 @@ export type ReplayBar = {
   volume: number; turnover: number;
 };
 export type ReplayDirection = "LONG" | "SHORT";
-export type ReplayVariant = "baseline" | "near-entry" | "moderate-trend" | "lower-volume";
+export type ReplayVariant = "baseline" | "near-entry" | "moderate-trend" | "lower-volume" | "intraday-quality";
 export function passesExperimentFilter(
   variant: ReplayVariant,
   features: { distanceAtr: number; trendStrengthAtr: number; relativeVolume: number },
@@ -16,6 +17,7 @@ export function passesExperimentFilter(
     case "near-entry": return features.distanceAtr <= 1;
     case "moderate-trend": return features.trendStrengthAtr < 1;
     case "lower-volume": return features.relativeVolume < 1.2;
+    case "intraday-quality": return true;
     case "baseline": return true;
   }
 }
@@ -25,6 +27,7 @@ export const REPLAY_VARIANTS: ReadonlyArray<{ key: ReplayVariant; label: string 
   { key: "near-entry", label: "Вхід не далі 1 ATR" },
   { key: "moderate-trend", label: "Сила тренду 4h < 1 ATR" },
   { key: "lower-volume", label: "Обсяг 1h < 1,2×" },
+  { key: "intraday-quality", label: "Внутрішньоденний якісний вхід · дослідний" },
 ];
 
 export type ReplayTrade = {
@@ -167,6 +170,10 @@ function evaluateAt(history: ReplayTimeframes, variant: ReplayVariant, tickSize?
   const atr4h = atrBars(h240);
   const trendStrengthAtr = atr4h > 0 ? Math.abs(h240.at(-1)!.close - emaBars(h240, 50)) / atr4h : 0;
   if (quality.status !== "ACTIVE") return null;
+  if (variant === "intraday-quality" && !evaluateIntradayPlan({
+    direction, entry, stop, target, tickSize, atr30m: a30,
+    distanceAtr, score: quality.score, readiness: quality.confirmedConditions, rewardRisk: rr,
+  }).accepted) return null;
   if (!passesExperimentFilter(variant, { distanceAtr, trendStrengthAtr, relativeVolume })) return null;
   return {
     direction, entry, stop, target,
@@ -219,6 +226,11 @@ export function replayMultiTimeframeStrategy(
     "Просідання виражене сумою R при постійному ризику на угоду; це не просідання рахунку у відсотках.",
     "Групи діагностики класифікують тільки виконані угоди за ознаками, відомими на момент сигналу, та не є новими торговими правилами.",
     "Дані обмежені доступною історією Bybit; тест не прогнозує результат майбутньої торгівлі.",
+    ...(variant === "intraday-quality" ? [
+      "Дослідний якісний intraday-фільтр: лише підтверджені входи зі score>=90, R:R>=2, відстанню <=0.75 ATR і стопом 0.8–3 ATR.",
+      "Заявка чинна максимум 3 години; позиція в моделі утримується максимум 24 години, не примусово закривається в календарну північ.",
+      "Пороги встановлені як гіпотези після перегляду старої історії, не є незалежно валідованими.",
+    ] : []),
     ...(stress.limit ? ["Limit: лише після проходження ціною рівня на 1 tick; OHLC не гарантує реального виконання."] : []),
     ...(stress.fees ? ["Комісія 0.075% на сторону замість 0.055%; гіпотетичний стрес-тест."] : []),
     ...(stress.slippage ? [
@@ -246,7 +258,8 @@ export function replayMultiTimeframeStrategy(
     signals++;
     const { direction, entry, stop, target } = setup;
     let entryIndex = -1;
-    const fillEnd = Math.min(i + 1 + maxPendingBars, decisionBars.length);
+    const fillEnd = Math.min(i + 1 + (variant === "intraday-quality"
+      ? INTRADAY_POLICY_V1.maxPendingBars30m : maxPendingBars), decisionBars.length);
     for (let j = i + 1; j < fillEnd; j++) {
       const fills = stress.limit
         ? qualifiesLimitFill(decisionBars[j], direction, entry, tickSize!)
@@ -256,7 +269,8 @@ export function replayMultiTimeframeStrategy(
       }
     }
     if (entryIndex < 0) { unfilled++; i = fillEnd; continue; }
-    const exitEnd = Math.min(entryIndex + maxHoldBars, decisionBars.length);
+    const exitEnd = Math.min(entryIndex + (variant === "intraday-quality"
+      ? INTRADAY_POLICY_V1.maxHoldingBars30m : maxHoldBars), decisionBars.length);
     for (let j = entryIndex; j < exitEnd; j++) {
       const candle = decisionBars[j];
       const stopHit = direction === "LONG" ? candle.low <= stop : candle.high >= stop;
