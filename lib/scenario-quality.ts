@@ -45,10 +45,10 @@ export function evaluateScenarioQuality(input: QualityInput): QualityResult {
     (input.direction1h === input.direction4h && input.direction4h ? 7 : 0) +
     (aligned ? 10 : 0);
   const levelPoints = Math.min(18, levelStrength * 6);
-  const volumePoints = Math.min(10, Math.max(0, (input.relativeVolume - 0.5) * 10));
-  const rrPoints = Math.min(16, Math.max(0, (input.rewardRisk - 0.5) / 1.9 * 16));
-  const distancePoints = Math.min(12, Math.max(0, (1 - input.distanceAtr / 5) * 12));
-  const liquidityPoints = Math.min(10, Math.max(0, input.turnover24h / 20_000_000 * 10));
+  const volumePoints = Number.isFinite(input.relativeVolume) ? Math.min(10, Math.max(0, (input.relativeVolume - 0.5) * 10)) : 0;
+  const rrPoints = Number.isFinite(input.rewardRisk) ? Math.min(16, Math.max(0, (input.rewardRisk - 0.5) / 1.9 * 16)) : 0;
+  const distancePoints = Number.isFinite(input.distanceAtr) ? Math.min(12, Math.max(0, (1 - input.distanceAtr / 5) * 12)) : 0;
+  const liquidityPoints = Number.isFinite(input.turnover24h) ? Math.min(10, Math.max(0, input.turnover24h / 20_000_000 * 10)) : 0;
   const momentumPoints = momentum ? 6 : 0;
   const targetPoints = input.hasTargetLevel ? 4 : 0;
   const score = Math.max(1, Math.min(100, Math.round(
