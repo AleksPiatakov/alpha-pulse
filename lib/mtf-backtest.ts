@@ -16,6 +16,9 @@ export type ReplaySummary = {
   wins: number; losses: number; timeouts: number;
   winRate: number | null; averageNetR: number | null; totalNetR: number;
   from: number | null; to: number | null; trades: ReplayTrade[];
+  maxDrawdownR: number;
+  periods: Array<{ label: string; from: number; to: number; trades: number; wins: number;
+    winRate: number | null; totalNetR: number; averageNetR: number | null; maxDrawdownR: number }>;
   assumptions: string[];
 };
 export type ReplayTimeframes = {
@@ -139,6 +142,24 @@ function evaluateAt(history: ReplayTimeframes): Setup | null {
   return quality.status === "ACTIVE" ? { direction, entry, stop, target } : null;
 }
 
+export function summarizeTrades(trades: ReplayTrade[]) {
+  let cumulative = 0, peak = 0, maxDrawdown = 0;
+  for (const trade of [...trades].sort((a, b) => a.exitTime - b.exitTime)) {
+    cumulative += trade.netR;
+    peak = Math.max(peak, cumulative);
+    maxDrawdown = Math.max(maxDrawdown, peak - cumulative);
+  }
+  const wins = trades.filter((trade) => trade.netR > 0).length;
+  const totalNetR = trades.reduce((sum, trade) => sum + trade.netR, 0);
+  return {
+    trades: trades.length, wins,
+    winRate: trades.length ? Number((wins / trades.length * 100).toFixed(1)) : null,
+    totalNetR: Number(totalNetR.toFixed(3)),
+    averageNetR: trades.length ? Number((totalNetR / trades.length).toFixed(3)) : null,
+    maxDrawdownR: Number(maxDrawdown.toFixed(3)),
+  };
+}
+
 export function replayMultiTimeframeStrategy(
   raw: ReplayTimeframes,
   feeRate = feePerSide,
@@ -153,6 +174,7 @@ export function replayMultiTimeframeStrategy(
     "Limit діє до 6 годин, після входу позиція утримується максимум 48 годин; одночасно одна позиція.",
     "Комісія 0.055% за вхід і вихід; без funding, проскальзування і біржової черги виконання.",
     "Якщо стоп і ціль торкнуті в одній свічці, пріоритет має Stop Loss. Заповнення Limit за OHLC моделюється, не гарантоване.",
+    "Просідання виражене сумою R при постійному ризику на угоду; це не просідання рахунку у відсотках.",
     "Дані обмежені доступною історією Bybit; тест не прогнозує результат майбутньої торгівлі.",
   ];
   const trades: ReplayTrade[] = [];
@@ -203,11 +225,21 @@ export function replayMultiTimeframeStrategy(
   }
   const wins = trades.filter((t) => t.netR > 0).length;
   const count = trades.length;
+  const summary = summarizeTrades(trades);
+  const start = decisionBars[0]?.time ?? null;
+  const finish = decisionBars.at(-1)?.time ?? null;
+  const midpoint = start !== null && finish !== null ? start + (finish - start) / 2 : null;
+  const periods = midpoint === null || start === null || finish === null ? [] : [
+    { label: "Перша половина", from: start, to: midpoint,
+      ...summarizeTrades(trades.filter((trade) => trade.signalTime < midpoint)) },
+    { label: "Друга половина", from: midpoint, to: finish,
+      ...summarizeTrades(trades.filter((trade) => trade.signalTime >= midpoint)) },
+  ];
   return { mode: "mtf-walk-forward", signals, unfilled, filled: count, wins,
     losses: count - wins, timeouts: trades.filter((t) => t.result === "TIMEOUT").length,
     winRate: count ? Number((wins / count * 100).toFixed(1)) : null,
     averageNetR: count ? Number((trades.reduce((v, t) => v + t.netR, 0) / count).toFixed(3)) : null,
     totalNetR: Number(trades.reduce((v, t) => v + t.netR, 0).toFixed(3)),
-    from: decisionBars[0]?.time ?? null, to: decisionBars.at(-1)?.time ?? null,
+    from: start, to: finish, maxDrawdownR: summary.maxDrawdownR, periods,
     trades, assumptions };
 }
