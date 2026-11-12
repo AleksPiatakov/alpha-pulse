@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  emaValues, emaBars, atrBars, trendBars, nearestSwingLevel,
+  emaValues, emaBars, atrBars, trendBars, isCompletedBar, roundPlanPrice, roundedPlanLevels, nearestSwingLevel,
   nearestAcrossTimeframes, stopFromAtr, structuralTarget, rewardRisk,
 } from "../lib/technical-plan-core.ts";
 
@@ -49,4 +49,30 @@ test("not enough history fails safely in EMA, ATR, and trend", () => {
   assert.ok(Number.isNaN(emaBars(bars.slice(0, 10), 20)));
   assert.ok(Number.isNaN(atrBars(bars.slice(0, 10))));
   assert.equal(trendBars(bars.slice(0, 10)), null);
+});
+
+test("Bybit timestamps denote opening times; only fully closed candles are eligible", () => {
+  const start = Date.UTC(2026, 10, 12, 12, 0);
+  const halfHour = 30 * 60 * 1000;
+  assert.equal(isCompletedBar(start, halfHour, start + halfHour - 1), false);
+  assert.equal(isCompletedBar(start, halfHour, start + halfHour), true);
+  assert.equal(isCompletedBar(start, halfHour, start + halfHour + 1), true);
+  assert.equal(isCompletedBar(NaN, halfHour, start + halfHour), false);
+  assert.equal(isCompletedBar(start, 0, start + halfHour), false);
+  assert.equal(isCompletedBar(start + halfHour, halfHour, start + halfHour), false);
+});
+
+test("scanner and historical replay round levels identically before R:R", () => {
+  assert.equal(roundPlanPrice(80000.16), 80000.2);
+  assert.equal(roundPlanPrice(2.71828), 2.718);
+  assert.equal(roundPlanPrice(0.009876543), 0.00987654);
+  const levels = roundedPlanLevels("LONG", 100.12345, 99.12345, 102.34567);
+  assert.deepEqual(levels, {
+    entry: 100.123,
+    stop: 99.123,
+    target: 102.346,
+    rr: (102.346 - 100.123) / (100.123 - 99.123),
+  });
+  assert.equal(roundedPlanLevels("LONG", 100, 100.00001, 102), null);
+  assert.equal(roundedPlanLevels("SHORT", 100, 101, 98)?.rr, 2);
 });
