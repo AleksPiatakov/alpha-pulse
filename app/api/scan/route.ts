@@ -4,15 +4,15 @@ import { scanTechnicalPlans } from "@/lib/market-scan";
 
 export async function GET() {
   try {
-    const { plans, scanned, eligible, analyzed, rejectionCounts } = await scanTechnicalPlans();
-    const ai = await createAiExplanations(plans);
+    const { plans, scanned, eligible, analyzed, covered, category, rejectionCounts } = await scanTechnicalPlans();
+    const ai = await createAiExplanations(plans.slice(0, 6));
     const enrichedPlans = plans.map((plan) =>
       ai.explanations[plan.id]
         ? { ...plan, ...ai.explanations[plan.id], explanationSource: "ai" as const }
         : plan
     );
     return NextResponse.json({
-      success: true, scanned, eligible, analyzed, rejectionCounts,
+      success: true, scanned, eligible, analyzed, covered, category, rejectionCounts,
       plans: enrichedPlans, aiStatus: ai.status,
       generatedAt: new Date().toISOString(),
     });
