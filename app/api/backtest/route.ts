@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { PUBLIC_BYBIT_URL } from "@/lib/trading";
 import { isCompletedBar } from "@/lib/technical-plan-core";
 import { loadSnapshot, persistSnapshot, sealSnapshot } from "@/lib/backtest-snapshot";
-import { replayMultiTimeframeStrategy, REPLAY_VARIANTS, type ReplayBar, type ReplayTimeframes } from "@/lib/mtf-backtest";
+import { replayMultiTimeframeStrategy, REPLAY_VARIANTS, EXECUTION_STRESS_CASES, type ReplayBar, type ReplayTimeframes } from "@/lib/mtf-backtest";
 
 const symbolPattern = /^[A-Z0-9]{3,24}USDT$/;
 type BybitCandle = [string, string, string, string, string, string, string];
@@ -172,6 +172,21 @@ export async function GET(request: Request) {
           winRate: run.winRate, maxDrawdownR: run.maxDrawdownR,
           periods: run.periods, trades: run.trades, assumptions: run.assumptions };
       }) : undefined;
+    // Factor isolation uses the exact same saved candles, metadata and baseline strategy.
+    // Only change one execution assumption at a time.
+    const executionAttribution = experimental && tickSize !== undefined
+      ? EXECUTION_STRESS_CASES.map(({ key, label }) => {
+        const run = key === "reference" ? result
+          : key === "conservative"
+            ? replayMultiTimeframeStrategy(raw, undefined, "baseline", tickSize, "conservative")
+            : replayMultiTimeframeStrategy(raw, undefined, "baseline", tickSize, key);
+        return {
+          key, label, signals: run.signals, unfilled: run.unfilled, filled: run.filled,
+          totalNetR: run.totalNetR, averageNetR: run.averageNetR,
+          winRate: run.winRate, maxDrawdownR: run.maxDrawdownR,
+          trades: run.trades, assumptions: run.assumptions,
+        };
+      }) : undefined;
     const payload = {
       success: true, symbol, warnings, partialHistory: warnings.length > 0,
       comparisonCutoff: cutoff, fixedComparison: pinned, tickSize: tickSize ?? null,
@@ -183,7 +198,7 @@ export async function GET(request: Request) {
         "30": raw["30"].length, "60": raw["60"].length,
         "240": raw["240"].length, D: raw.D.length,
       },
-      ...result, experiments, conservativeExperiments, trades: result.trades,
+      ...result, experiments, conservativeExperiments, executionAttribution, trades: result.trades,
     };
     if (cache.size > 50) cache.clear();
     cache.set(cacheKey, { until: Date.now() + 5 * 60_000, payload });
