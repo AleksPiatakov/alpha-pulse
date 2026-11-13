@@ -6,7 +6,7 @@
 import {createHash} from "node:crypto";
 import {readFile, mkdir, writeFile} from "node:fs/promises";
 import path from "node:path";
-import {PUBLIC_BYBIT_URL} from "./trading.ts";
+const PUBLIC_BYBIT_URL = "https://api.bybit.com"; // Public market candles only; no account API.
 import type {EmaBar} from "./video-ema50-strategy.ts";
 export const EMA50_CUTOFF = Date.parse("2026-11-12T00:00:00.000Z");
 export type EmaStudyPeriod = 120|365;
