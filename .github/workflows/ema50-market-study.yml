@@ -1,0 +1,31 @@
+name: EMA50 public-market research study
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "scripts/ema50-market-study.mjs"
+      - ".github/workflows/ema50-market-study.yml"
+jobs:
+  study:
+    name: EMA50 120-day read-only backtest
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run 120-day Bybit public market study
+        run: node --experimental-strip-types scripts/ema50-market-study.mjs
+        env:
+          EMA50_DAYS: "120"
+      - name: Attach full per-trade JSON report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ema50-120-day-study
+          path: ema50-study-output/*.json
+          if-no-files-found: warn
+          retention-days: 30
