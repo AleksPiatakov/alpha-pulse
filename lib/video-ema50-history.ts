@@ -67,10 +67,13 @@ async function getPage(symbol:string,frame:Frame,end:number):Promise<BybitRow[]>
   for(let attempt=0;attempt<3;attempt++){
     try{
       const response=await fetch(url,{cache:"no-store",signal:AbortSignal.timeout(15000)});
-      const data=await response.json() as {retCode?:number;retMsg?:string;result?:{list?:BybitRow[]}};
+      const raw=await response.text();
+      let data:{retCode?:number;retMsg?:string;result?:{list?:BybitRow[]}};
+      try{data=JSON.parse(raw) as typeof data;}
+      catch{throw Error(`Bybit HTTP ${response.status}: сервер повернув не JSON; історія недоступна з цього середовища.`);}
       if(response.ok&&data.retCode===0&&Array.isArray(data.result?.list))return data.result.list;
       if(response.status!==429&&response.status<500&&data.retCode!==10006)
-        throw Error(data.retMsg||"Bybit помилка.");
+        throw Error(`Bybit HTTP ${response.status}, код ${data.retCode??"unknown"}: ${data.retMsg||"історія недоступна"}`);
     }catch(e){if(attempt===2)throw e;}
   }
   throw Error("Bybit не повернув свічки.");
