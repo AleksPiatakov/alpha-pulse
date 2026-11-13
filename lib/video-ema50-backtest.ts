@@ -8,7 +8,7 @@ export type EmaCostMode="reference"|"conservative";
 export type EmaRewardModel="video-3r"|"comparison-2r";
 export type EmaReplayTrade={
  signalTime:number;entryTime:number;exitTime:number;direction:EmaDirection;
- entry:number;stop:number;target:number;exit:number;outcome:"TP"|"SL"|"TIMEOUT";
+ entry:number;stop:number;target:number;exit:number;outcome:"TP"|"SL";
  netR:number;holdingBars:number;
 };
 export type VideoEmaResult={
@@ -56,20 +56,19 @@ export function replayVideoEma50(symbol:string,m15:EmaBar[],h1:EmaBar[],h4:EmaBa
     const stop=entry*(dir==="LONG"?.975:1.025);
     const target=entry*(dir==="LONG"?1+takePercent/100:1-takePercent/100);
     const risk=Math.abs(entry-stop);
-    const end=Math.min(next+96,m15.length);
+    const end=m15.length; // Video does not specify a time stop; hold until TP/SL or end of available history.
     let finished=false;
     for(let j=next;j<end;j++){
       const bar=m15[j];
       const sl=dir==="LONG"?bar.low<=stop:bar.high>=stop;
       const tp=dir==="LONG"?bar.high>=target:bar.low<=target;
-      // A still-open trade at dataset end is censored, never forced to timeout.
-      const completeWindow=next+96<=m15.length;
-      const outcome=sl?"SL":tp?"TP":j===end-1&&completeWindow?"TIMEOUT":null;
+      // Unknown intrabar order: stop has priority over take.
+      const outcome=sl?"SL":tp?"TP":null;
       if(!outcome)continue;
-      let exit=outcome==="SL"?stop:outcome==="TP"?target:bar.close;
-      if(costMode==="conservative"&&outcome!=="TP"){
-        if(outcome==="SL")exit=dir==="LONG"?Math.min(exit,bar.open):Math.max(exit,bar.open);
-        exit*=dir==="LONG"?1-(outcome==="SL"?10:5)/10000:1+(outcome==="SL"?10:5)/10000;
+      let exit=outcome==="SL"?stop:target;
+      if(costMode==="conservative"&&outcome==="SL"){
+        exit=dir==="LONG"?Math.min(exit,bar.open):Math.max(exit,bar.open);
+        exit*=dir==="LONG"?.999:1.001;
       }
       // Market entry: adverse 5 bps spread/slippage reference only in conservative.
       const actualEntry=costMode==="conservative"
@@ -99,11 +98,11 @@ export function replayVideoEma50(symbol:string,m15:EmaBar[],h1:EmaBar[],h4:EmaBa
       "15m: підтверджений перехід ціни закриття через EMA50 у напрямку старшого тренду.",
       "Вхід на open НАСТУПНОЇ 15m свічки, лише завершені на момент сигналу 1h/4h.",
       "Stop 2,5% від входу; Take 7,5% або 5%, для порівняння 3R та 2R без оптимізації.",
-      "Одна позиція за раз; горизонт утримання максимум 24 години; SL першим при невідомій OHLC-послідовності.",
+      "Одна позиція за раз; часовий вихід у відео не визначений, тримаємо до SL/TP або кінця історії. При одночасному дотику SL має пріоритет.",
       costMode==="conservative"
-        ?"Комісія 0,075% на бік, 5 bps несприятливий вхід, SL gap +10 bps, TIMEOUT +5 bps."
+        ?"Комісія 0,075% на бік, 5 bps несприятливий вхід, SL gap +10 bps."
         :"Комісія 0,055% на бік, без додаткового прослизання.",
-      "Останні незавершені позиції без 24h історії — censored; не враховано funding та реальну чергу ордерів.",
+      "Позиції без фактичного досягнення SL/TP до кінця історії — censored; не враховано funding та реальну чергу ордерів.",
       "Результати не є перевіреною перевагою чи дозволом на Demo-заявки.",
     ]};
 }
