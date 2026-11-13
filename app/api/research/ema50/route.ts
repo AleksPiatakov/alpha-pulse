@@ -1,8 +1,6 @@
 import {NextResponse} from "next/server";
 import {getEmaStudy, type EmaStudyPeriod, EMA50_CUTOFF} from "@/lib/video-ema50-history";
 import {replayVideoEma50} from "@/lib/video-ema50-backtest";
-export const runtime="nodejs";
-export const dynamic="force-dynamic";
 const allowed=new Set([120,365]);
 export async function GET(request:Request){
   const params=new URL(request.url).searchParams;
