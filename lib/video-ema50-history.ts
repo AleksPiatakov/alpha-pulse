@@ -24,7 +24,7 @@ function filepath(symbol:string,days:EmaStudyPeriod){
     throw Error("Некоректні параметри.");
   return path.join(process.cwd(),".alpha-pulse-ema50-snapshots",symbol+"-"+days+"-"+EMA50_CUTOFF+".json");
 }
-function verify(document:SavedEmaStudy):SavedEmaStudy {
+export function verifyEmaStudySnapshot(document:SavedEmaStudy):SavedEmaStudy {
   const {sha256,...content}=document;
   if(content.schema!==1||content.source!=="bybit-public-linear"||
       content.cutoff!==EMA50_CUTOFF||![120,365].includes(content.days)||
@@ -60,7 +60,7 @@ function verify(document:SavedEmaStudy):SavedEmaStudy {
   return document;
 }
 export async function loadEmaStudy(symbol:string,days:EmaStudyPeriod):Promise<SavedEmaStudy|null>{
-  try{return verify(JSON.parse(await readFile(filepath(symbol,days),"utf8")) as SavedEmaStudy);}
+  try{return verifyEmaStudySnapshot(JSON.parse(await readFile(filepath(symbol,days),"utf8")) as SavedEmaStudy);}
   catch(e){
     if((e as NodeJS.ErrnoException).code==="ENOENT")return null;
     throw e;
@@ -116,7 +116,7 @@ export async function getEmaStudy(symbol:string,days:EmaStudyPeriod):Promise<Sav
   const content:DataContent={schema:1,source:"bybit-public-linear",symbol,days,
     cutoff:EMA50_CUTOFF,capturedAt:new Date().toISOString(),
     candles:{"15":m15,"60":h1,"240":h4}};
-  const sealed=verify({...content,sha256:digest(content)});
+  const sealed=verifyEmaStudySnapshot({...content,sha256:digest(content)});
   const file=filepath(symbol,days);
   await mkdir(path.dirname(file),{recursive:true});
   try{await writeFile(file,JSON.stringify(sealed),{flag:"wx",mode:0o600});}
