@@ -20,9 +20,9 @@ A missing/unavailable instrument is excluded. Popularity is not a volatility mea
 - Bybit public linear OHLCV, server-pinned cutoff: 2026-11-12 00:00 UTC. Initial window 120 days; full window 365 days selectable. Do not report results if <90% complete coverage or stale/missing head/tail.
 - All bars must be aligned and closed by decision time. Missing/corrupt data fails closed.
 - Local history snapshots under `.alpha-pulse-ema50-snapshots/` use SHA-256 and immutable first-writer persistence.
-- Signals exclude overlapping positions, exit on first TP/SL, maximum 24h holding. Same-bar TP+SL conservatively resolved as SL.
+- Signals exclude overlapping positions and exit only on first TP/SL; the video supplies no time stop. Still-open trades at end of the historical dataset are censored. Same-bar TP+SL conservatively resolves as SL.
 - Reference cost: 0.055% per side, no additional slippage.
-- Conservative cost: 0.075% per side, 5 bps adverse entry, stop adverse gap plus 10 bps, timeout 5 bps.
+- Conservative cost: 0.075% per side, 5 bps adverse entry, stop adverse gap plus 10 bps.
 - Unfinished final-history positions are censored, not assigned imaginary TP/SL.
 - Reports include signal count, trade count, win rate, net sum R, mean R, max drawdown R, complete trade journal, volatility, data hash.
 - These are independent **per symbol**, not a concurrent capital-constrained portfolio model; net R is not equity return.
