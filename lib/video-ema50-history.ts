@@ -45,9 +45,17 @@ function verify(document:SavedEmaStudy):SavedEmaStudy {
         throw Error("Некоректні історичні свічки "+frame);
       last=b.time;
     }
-    if(list[0].time>start+duration*2||list.at(-1)!.time+duration<EMA50_CUTOFF-duration*2||
-      list.length<Math.floor(content.days*86400000/duration*.9))
-      throw Error("Неповна історія "+frame+"; неможливо чесно порівняти період.");
+    // A missing interior bar can hide an SL/TP hit or distort the EMA.
+    // Require full aligned coverage, not merely >=90% of the requested interval.
+    const expectedCount=(EMA50_CUTOFF-start)/duration;
+    if(list.length!==expectedCount||list[0].time!==start||
+      list.at(-1)!.time!==EMA50_CUTOFF-duration)
+      throw Error("Неповна історія "+frame+": очікується "+expectedCount+
+        " безперервних свічок, отримано "+list.length+".");
+    for(let j=1;j<list.length;j++){
+      if(list[j].time-list[j-1].time!==duration)
+        throw Error("Пропуск історичної свічки "+frame+" після "+new Date(list[j-1].time).toISOString());
+    }
   }
   return document;
 }
