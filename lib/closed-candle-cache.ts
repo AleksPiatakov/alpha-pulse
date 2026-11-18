@@ -6,8 +6,10 @@
 export class ClosedCandleCache<T> {
   private readonly entries = new Map<string, {data:T; expiresAt:number}>();
   private readonly pending = new Map<string,Promise<T>>();
-  constructor(private readonly maxEntries=1500) {
+  private readonly maxEntries:number;
+  constructor(maxEntries=1500) {
     if(!Number.isInteger(maxEntries)||maxEntries<1)throw Error("Invalid cache size");
+    this.maxEntries=maxEntries;
   }
   async get(key:string,cutoff:number,now:number,loader:()=>Promise<T>):Promise<T> {
     if(!Number.isSafeInteger(cutoff)||!Number.isSafeInteger(now)||cutoff<0||now<0||!key)
