@@ -5,11 +5,11 @@ import { scanTechnicalPlans } from "@/lib/market-scan";
 // Only metadata is returned: this endpoint does not expose plans or credentials.
 export async function GET() {
   try {
-    const { scanned, eligible, analyzed, covered, category, rejectionCounts,
+    const { scanned, eligible, analyzed, covered, watchStatusCounts, category, rejectionCounts,
       universePages, universeInstruments, unsupportedInstruments,
       coveragePercent, cycleCompleted, completedSweeps } = await scanTechnicalPlans();
     return NextResponse.json({
-      success: true, scanned, eligible, analyzed, covered, category,
+      success: true, scanned, eligible, analyzed, covered, watchStatusCounts, category,
       universePages, universeInstruments, unsupportedInstruments,
       coveragePercent, cycleCompleted, completedSweeps, rejectionCounts,
       generatedAt: new Date().toISOString(),
