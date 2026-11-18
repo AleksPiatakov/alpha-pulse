@@ -155,6 +155,7 @@ const MAX_VISIBLE = 100;
 const seenPlans = new Map<string, { plan: TradePlan; checkedAt: number }>();
 const visited = new Set<string>();
 const visitedAt = new Map<string,number>();
+const failedInSweep = new Set<string>();
 let scanCursor = 0;
 let pinnedSweepOrder: string[] = [];
 let completedSweeps = 0;
@@ -204,6 +205,7 @@ async function doScan(): Promise<ScanResult> {
     pinnedSweepOrder = orderMarketScan(eligible);
     visited.clear();
     visitedAt.clear();
+    failedInSweep.clear();
   }
   const quotes = new Map(eligible.map(t => [t.symbol,t]));
   const chosen = selectSweepBatch(pinnedSweepOrder,scanCursor,CYCLE_BATCH);
@@ -234,6 +236,8 @@ async function doScan(): Promise<ScanResult> {
     const symbol = batch[i].symbol;
     visited.add(symbol);
     visitedAt.set(symbol,now);
+    if (result.status === "rejected") failedInSweep.add(symbol);
+    else failedInSweep.delete(symbol);
     if (result.status === "fulfilled" && result.value) {
       seenPlans.set(symbol, { plan: result.value, checkedAt: now });
     } else {
@@ -258,6 +262,7 @@ async function doScan(): Promise<ScanResult> {
   const selectionDiagnostics = summarize24hSelection(allPlans);
   if (visited.size === eligible.length) completedSweeps++;
   const allSymbolsRecentlyChecked = visited.size === eligible.length &&
+    failedInSweep.size === 0 &&
     eligible.every(t => now - (visitedAt.get(t.symbol) ?? 0) <= CONFIRMATION_FRESHNESS);
   return { plans, recommended24h, recommended24hComplete: allSymbolsRecentlyChecked,
     entryHorizonHours: 24 as const, scanned: data.result.list.length, eligible: eligible.length,
