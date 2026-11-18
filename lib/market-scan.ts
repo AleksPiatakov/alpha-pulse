@@ -4,6 +4,7 @@ import { explainPlanLifecycle } from "./trade-plan-lifecycle.ts";
 import { closedMarketFeatures } from "./closed-market-features.ts";
 import { sealMarketInputSnapshot, type MarketInputSnapshot, type SnapshotTimeframes } from "./market-input-snapshot.ts";
 import { compareFrozenMarketPlan } from "./snapshot-parity.ts";
+import { assessLimitEntry24h, LIMIT_ENTRY_HORIZON_MS } from "./limit-entry-24h.ts";
 import { closedBarAt, observationMetadata, type MarketTimeframe } from "./market-observation-clock.ts";
 import { fetchLinearUniverse, matchUniverseTickers, type UniverseResult, type InstrumentMeta } from "./bybit-universe.ts";
 import { parseExecutionRules } from "./bybit-execution-rules.ts";
@@ -83,6 +84,8 @@ async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null, 
       pivot1h: h1Pivot !== null, pivot4h: h4Pivot !== null, pivotDaily: dPivot !== null,
     },
   });
+  const reach = assessLimitEntry24h({ direction, currentPrice: price, entryPrice,
+    atr30m: volatility30m, closed30m: asBars(candles30) });
   const { score } = quality;
   const caution = quality.status === "ACTIVE" ? "Навіть узгоджені технічні умови не гарантують виконання Limit-заявки або прибутку." : `Непідтверджено: ${quality.checks.slice(0, 2).join("; ") || "потрібна повторна перевірка"}.`;
   return {
@@ -94,6 +97,7 @@ async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null, 
     qualityGate: { passed: gate.accepted, reasons: gate.reasons, policy: "intraday-quality-v1",
       stopAtr: Number.isFinite(gate.stopAtr) ? Number(gate.stopAtr.toFixed(3)) : null,
       rewardRisk: Number.isFinite(gate.rewardRisk) ? Number(gate.rewardRisk.toFixed(3)) : null },
+    limitEntry24h: reach,
     currentPrice: roundToTick(price, rules.tickSize),
     entryPrice,
     entryLow: roundToTick(entry - zoneHalfWidth, rules.tickSize),
@@ -102,10 +106,11 @@ async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null, 
     takeProfit1: roundedTarget,
     takeProfit2: roundedTarget,
     riskReward: Number(actualRR.toFixed(2)),
+    // Plan refresh remains 2h; the 24h window is for entry reachability, NOT a 24h stale quote.
     expiresAt: new Date(observedAt + 2 * 60 * 60 * 1000).toISOString(),
     observation: observationMetadata(observedAt),
     featureSource: features.source,
-    reasons: [`4h EMA: ${direction4h ?? "без напрямку"}`, `1h EMA: ${direction1h ?? "без напрямку"}`, `30m EMA: ${direction30m ?? "без напрямку"}`, hasDailyTarget ? `TP обмежено денним swing-рівнем` : `Ціль попередня: денний рівень не підтверджений`, `24h імпульс закритих свічок ${(change * 100).toFixed(2)}% · 24h оборот закритих свічок ${features.turnover24h.toFixed(0)} USDT · 1h обсяг ${relativeVolume.toFixed(1)}× · до входу ${entryDistanceAtr.toFixed(2)} ATR`, ...quality.checks],
+    reasons: [`24h Limit-вхід: ${reach.status}; історичні торкання ${reach.historicalTouchRate === null ? "недоступні" : (reach.historicalTouchRate * 100).toFixed(1) + "%"} (${reach.sampleWindows} перекривних вікон). Це не ймовірність виконання.`, `4h EMA: ${direction4h ?? "без напрямку"}`, `1h EMA: ${direction1h ?? "без напрямку"}`, `30m EMA: ${direction30m ?? "без напрямку"}`, hasDailyTarget ? `TP обмежено денним swing-рівнем` : `Ціль попередня: денний рівень не підтверджений`, `24h імпульс закритих свічок ${(change * 100).toFixed(2)}% · 24h оборот закритих свічок ${features.turnover24h.toFixed(0)} USDT · 1h обсяг ${relativeVolume.toFixed(1)}× · до входу ${entryDistanceAtr.toFixed(2)} ATR`, ...quality.checks],
     summary: `${quality.status === "ACTIVE" ? "Технічні умови узгоджені" : "Сценарій спостереження"} ${direction}. Очікується Limit-рівень ${entryPrice}.`,
     caution,
     nextStep: quality.status === "ACTIVE" ? "Перевірте актуальний план і ризик перед Demo-заявкою." : "Дочекайтеся додаткового підтвердження або випробуйте сценарій у Demo.",
@@ -138,6 +143,9 @@ const PLAN_TTL = 45 * 60_000;
 const CONFIRMATION_FRESHNESS = 4 * 60_000;
 export type ScanResult = {
   plans: TradePlan[];
+  recommended24h: TradePlan[];
+  recommended24hComplete: boolean;
+  entryHorizonHours: 24;
   scanned: number;
   eligible: number;
   analyzed: number;
@@ -209,8 +217,19 @@ async function doScan(): Promise<ScanResult> {
   })
     .sort((a, b) => (a.status === "ACTIVE" ? -1 : 1) - (b.status === "ACTIVE" ? -1 : 1) || b.score - a.score || b.riskReward - a.riskReward || a.symbol.localeCompare(b.symbol))
     .slice(0, MAX_VISIBLE);
+  // Keep a separate, strictly gated Top-10 shortlist. Until the current
+  // sweep visits all symbols it is ONLY provisional, never a market-wide Top 10.
+  const recommended24h = plans.filter(p =>
+    p.status === "ACTIVE" && p.qualityGate?.passed === true &&
+    p.limitEntry24h?.status === "HISTORICALLY_REACHABLE" &&
+    p.limitEntry24h.sampleWindows >= 60 &&
+    // An objectively identified swing entry and daily TP were required.
+    p.reasons.some(r => r.includes("TP обмежено денним swing-рівнем"))
+  ).sort((a,b) => b.score - a.score || b.riskReward - a.riskReward ||
+    a.symbol.localeCompare(b.symbol)).slice(0,10);
   if (visited.size === eligible.length) completedSweeps++;
-  return { plans, scanned: data.result.list.length, eligible: eligible.length,
+  return { plans, recommended24h, recommended24hComplete: visited.size === eligible.length,
+    entryHorizonHours: LIMIT_ENTRY_HORIZON_MS / 3_600_000, scanned: data.result.list.length, eligible: eligible.length,
     analyzed: batch.length, covered: visited.size, category: "linear",
     universePages: registry.pages, universeInstruments: registry.eligibleSymbols.size,
     unsupportedInstruments: registry.rejectedUnsupported + registry.rejectedNonTrading,
