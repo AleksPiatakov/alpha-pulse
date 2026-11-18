@@ -7,6 +7,7 @@ import { compareFrozenMarketPlan } from "./snapshot-parity.ts";
 import { assessLimitEntry24h } from "./limit-entry-24h.ts";
 import { select24hLimitRecommendations } from "./24h-recommendations.ts";
 import { orderMarketScan, selectSweepBatch } from "./market-scan-scheduler.ts";
+import { summarize24hSelection, type SelectionDiagnostics } from "./scan-selection-diagnostics.ts";
 import { closedBarAt, observationMetadata, type MarketTimeframe } from "./market-observation-clock.ts";
 import { fetchLinearUniverse, matchUniverseTickers, type UniverseResult, type InstrumentMeta } from "./bybit-universe.ts";
 import { parseExecutionRules } from "./bybit-execution-rules.ts";
@@ -160,6 +161,7 @@ export type ScanResult = {
   batchSize: number;
   scanConcurrency: number;
   deepScannedInSweep: number;
+  selectionDiagnostics: SelectionDiagnostics;
   category: "linear";
   universePages: number; universeInstruments: number; unsupportedInstruments: number;
   coveragePercent: number; cycleCompleted: boolean; completedSweeps: number;
@@ -239,6 +241,7 @@ async function doScan(): Promise<ScanResult> {
   // Keep a separate, strictly gated Top-10 shortlist. Until the current
   // sweep visits all symbols it is ONLY provisional, never a market-wide Top 10.
   const recommended24h = select24hLimitRecommendations(allPlans,10);
+  const selectionDiagnostics = summarize24hSelection(allPlans);
   if (visited.size === eligible.length) completedSweeps++;
   const allSymbolsRecentlyChecked = visited.size === eligible.length &&
     eligible.every(t => now - (visitedAt.get(t.symbol) ?? 0) <= CONFIRMATION_FRESHNESS);
@@ -246,7 +249,7 @@ async function doScan(): Promise<ScanResult> {
     entryHorizonHours: 24 as const, scanned: data.result.list.length, eligible: eligible.length,
     analyzed: batch.length, covered: visited.size,
     batchSize: CYCLE_BATCH, scanConcurrency: CYCLE_CONCURRENCY,
-    deepScannedInSweep: visited.size, category: "linear",
+    deepScannedInSweep: visited.size, selectionDiagnostics, category: "linear",
     universePages: registry.pages, universeInstruments: registry.eligibleSymbols.size,
     unsupportedInstruments: registry.rejectedUnsupported + registry.rejectedNonTrading,
     coveragePercent: Number((100 * visited.size / eligible.length).toFixed(1)),
