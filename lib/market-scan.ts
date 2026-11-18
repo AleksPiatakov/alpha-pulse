@@ -12,6 +12,7 @@ import { closedBarAt, completedBarCutoff, observationMetadata, type MarketTimefr
 import { ClosedCandleCache } from "./closed-candle-cache.ts";
 import { updateWatchedScenario, ageWatchedScenario, selectWatchedScenarios, type WatchedScenario } from "./scenario-watchlist.ts";
 import { assessScanFreshness } from "./scan-freshness.ts";
+import { selectNearEntryRechecks } from "./near-entry-recheck.ts";
 import { fetchLinearUniverse, matchUniverseTickers, type UniverseResult, type InstrumentMeta } from "./bybit-universe.ts";
 import { parseExecutionRules } from "./bybit-execution-rules.ts";
 import { roundToTick } from "./technical-plan-core.ts";
@@ -217,7 +218,12 @@ async function doScan(): Promise<ScanResult> {
   const quotes = new Map(eligible.map(t => [t.symbol,t]));
   const chosen = selectSweepBatch(pinnedSweepOrder,scanCursor,CYCLE_BATCH);
   scanCursor = chosen.nextCursor;
-  const batch = chosen.symbols
+  // Extra near-entry checks do not advance or replace the full-market sweep.
+  // Four additional requests at most; the original market coverage remains intact.
+  const nearEntrySymbols = selectNearEntryRechecks(
+    seenPlans, new Set(chosen.symbols), universe, observedAt
+  );
+  const batch = [...chosen.symbols, ...nearEntrySymbols]
     .map(symbol => quotes.get(symbol)).filter((ticker): ticker is Ticker => ticker !== undefined);
   const rejectionCounts: Record<FilterReason, number> = {
     candles: 0, trend: 0, volume: 0, momentum: 0,
