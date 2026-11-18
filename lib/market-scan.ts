@@ -8,7 +8,8 @@ import { assessLimitEntry24h } from "./limit-entry-24h.ts";
 import { select24hLimitRecommendations } from "./24h-recommendations.ts";
 import { orderMarketScan, selectSweepBatch } from "./market-scan-scheduler.ts";
 import { summarize24hSelection, type SelectionDiagnostics } from "./scan-selection-diagnostics.ts";
-import { closedBarAt, observationMetadata, type MarketTimeframe } from "./market-observation-clock.ts";
+import { closedBarAt, completedBarCutoff, observationMetadata, type MarketTimeframe } from "./market-observation-clock.ts";
+import { ClosedCandleCache } from "./closed-candle-cache.ts";
 import { fetchLinearUniverse, matchUniverseTickers, type UniverseResult, type InstrumentMeta } from "./bybit-universe.ts";
 import { parseExecutionRules } from "./bybit-execution-rules.ts";
 import { roundToTick } from "./technical-plan-core.ts";
@@ -27,16 +28,29 @@ function nearestConfirmedLevel(candles: Candle[], direction: PlanDirection, pric
   return nearestSwingLevel(asBars(candles), direction, price);
 }
 
+class InsufficientCandleHistory extends Error {}
+const closedCandleCache = new ClosedCandleCache<Candle[]>(1800);
 async function candlesFor(symbol: string, interval: Interval, observedAt: number) {
-  const limit = 200;
-  const response = await fetch(`${DEMO_BYBIT_URL}/v5/market/kline?category=linear&symbol=${symbol}&interval=${interval}&limit=${limit}`, { cache: "no-store", signal: AbortSignal.timeout(12000) });
-  if (!response.ok) throw new Error(`Bybit Kline ${symbol} ${interval}: HTTP ${response.status}`);
-  const data = await response.json() as { retCode: number; result?: { list?: Candle[] } };
-  if (data.retCode !== 0 || !data.result?.list) return null;
-  const closed = [...data.result.list].reverse().filter((c) =>
-    closedBarAt(Number(c[0]), interval, observedAt) &&
-    [c[2], c[3], c[4], c[5], c[6]].every((n) => n !== undefined && Number.isFinite(Number(n))));
-  return closed.length >= 60 ? closed : null;
+  const cutoff=completedBarCutoff(observedAt,interval);
+  if (cutoff===null)return null;
+  try {
+    return await closedCandleCache.get(`${symbol}:${interval}`,cutoff,observedAt,async()=>{
+      const limit=200;
+      const response = await fetch(`${DEMO_BYBIT_URL}/v5/market/kline?category=linear&symbol=${symbol}&interval=${interval}&limit=${limit}`,
+        { cache: "no-store", signal: AbortSignal.timeout(12000) });
+      if(!response.ok)throw new Error(`Bybit Kline ${symbol} ${interval}: HTTP ${response.status}`);
+      const data=await response.json() as {retCode:number;result?:{list?:Candle[]}};
+      if(data.retCode!==0||!data.result?.list)throw new Error(`Bybit Kline ${symbol} ${interval}: invalid response`);
+      const closed=[...data.result.list].reverse().filter(c=>
+        closedBarAt(Number(c[0]),interval,observedAt)&&
+        [c[2],c[3],c[4],c[5],c[6]].every(n=>n!==undefined&&Number.isFinite(Number(n))));
+      if(closed.length<60)throw new InsufficientCandleHistory();
+      return closed;
+    });
+  } catch(error) {
+    if(error instanceof InsufficientCandleHistory)return null;
+    throw error;
+  }
 }
 
 export type FilterReason = "candles" | "trend" | "volume" | "momentum" | "distance" | "prices" | "daily_level" | "reward_risk" | "error";
