@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { TradePlan } from "@/lib/trading";
-import { comparePlanPriority, isAtEntryZone } from "@/lib/plan-ranking";
+import { comparePlanPriority } from "@/lib/plan-ranking";
 
 type SelectionDiagnostics = {availablePlans:number; technicalActive:number; qualityPassed:number; structuralEntryAndTarget:number; historicallyReachable24h:number;eligible24h:number;hiddenByFreshness:number;activeQualityFailures:number;qualityFailures:Array<{reason:string;count:number}>;activeExamples:Array<{symbol:string;score:number;readiness:string;rr:number;distanceAtr:number|null;stopAtr:number|null;reasons:string[]}>};
 type RejectionCounts = Record<"candles" | "trend" | "volume" | "momentum" | "distance" | "prices" | "daily_level" | "reward_risk" | "error", number>;
@@ -17,13 +17,8 @@ const rejectionLabels: Array<[keyof RejectionCounts, string]> = [
   ["error", "Помилка отримання даних"],
 ];
 const price = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 6 })}`;
-const isInEntryZone = isAtEntryZone;
 
-// Display only real research shortlist members as Top 1..10, never REVIEW or
-// merely in-zone cards. Source data is produced by the strict server-side gate.
-const bybitChartUrl = (symbol: string) =>
-  /^[A-Z0-9]{3,24}USDT$/.test(symbol) ? `https://www.bybit.com/trade/usdt/${symbol}` : null;
-
+// Full technical and AI analysis lives on dedicated pages.\n
 
 export default function MarketScanner() {
   const router = useRouter();
@@ -74,7 +69,7 @@ export default function MarketScanner() {
 
   const openPlan = (plan: TradePlan) => {
     localStorage.setItem("alpha-pulse-plan-v1", JSON.stringify(plan));
-    router.push(`/trade/${plan.symbol}`);
+    router.push(`/analysis/${plan.symbol}`);
   };
 
   return <main className="min-h-screen bg-slate-950 p-5 text-slate-100 md:p-8">
@@ -137,18 +132,22 @@ export default function MarketScanner() {
           </div>
         </details>}
         {recommended24h.length ? <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-          {recommended24h.map((plan,index)=><div key={plan.id}
-            className="rounded-lg border border-slate-700 bg-slate-950/60 p-3 text-left">
-            <div className="flex justify-between gap-2"><span className="text-sm font-semibold">{recommendationsComplete ? `TOP ${index+1}` : `Кандидат ${index+1}`} · {plan.symbol} · {plan.direction}</span>
-              <span className="text-xs text-cyan-300">{plan.score}/100</span></div>
-            <p className="mt-2 text-xs text-slate-300">Limit {price(plan.entryPrice)} · SL {price(plan.stopLoss)} · TP {price(plan.takeProfit2)}</p>
-            <p className="mt-1 text-[11px] text-slate-400">24h історичні торкання: {plan.limitEntry24h?.historicalTouchRate == null ? "—" : (100*plan.limitEntry24h.historicalTouchRate).toFixed(1)+"%"} · {plan.limitEntry24h?.sampleWindows??0} перекривних вікон</p>
-            <p className="mt-1 text-[11px] text-slate-500">Горизонт Entry: {plan.observation?.observedAt ? new Date(plan.observation.observedAt).toLocaleString("uk-UA") : "—"} → {plan.observation?.observedAt ? new Date(plan.observation.observedAt+86_400_000).toLocaleString("uk-UA") : "—"} · це не термін дії GTC-ордера</p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button type="button" onClick={()=>openPlan(plan)} className="rounded-md bg-emerald-400 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-300">Переглянути план</button>
-              {bybitChartUrl(plan.symbol) && <a href={bybitChartUrl(plan.symbol)!} target="_blank" rel="noopener noreferrer" className="rounded-md border border-cyan-700 px-3 py-2 text-xs font-semibold text-cyan-200 hover:border-cyan-400">↗ Графік Bybit</a>}
+          {recommended24h.map((plan,index)=><button key={plan.id} type="button" onClick={()=>openPlan(plan)}
+            className="rounded-lg border border-emerald-900/80 bg-slate-950/60 p-3 text-left transition hover:border-emerald-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-400">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <strong className="text-sm text-slate-100">{recommendationsComplete?`TOP ${index+1}`:`Кандидат ${index+1}`} · {plan.symbol}</strong>
+              <span className={plan.direction==="LONG"?"text-xs text-emerald-300":"text-xs text-rose-300"}>{plan.direction}</span>
             </div>
-          </div>)}
+            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-300">
+              <span>Limit <strong className="text-cyan-200">{price(plan.entryPrice)}</strong></span>
+              <span>TP <strong className="text-emerald-300">{price(plan.takeProfit2)}</strong></span>
+              <span>SL <strong className="text-rose-300">{price(plan.stopLoss)}</strong></span>
+            </div>
+            <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
+              <span>Оцінка {plan.score}/100 · R:R 1:{plan.riskReward.toFixed(2)}</span>
+              <span className="text-cyan-300">Повний аналіз ↗</span>
+            </div>
+          </button>)}
         </div> : <p className="text-sm text-slate-400">Поки немає кандидатів, що пройшли всі попередні умови. Це не означає, що ринок уже повністю перевірено.</p>}
       </section>
       <p className="mb-3 text-xs text-amber-200">«Підтверджено» означає технічну готовність MTF, не доказ прибутковості. Дослідний фільтр якості показано окремо. До завершення обходу це не рейтинг усього ринку.</p>
@@ -162,54 +161,28 @@ export default function MarketScanner() {
           </div>
         </details>}
       </section>}
-      {groups.filter((group) => group.items.length > 0).map((group) => <section key={group.key} className="mb-5">
+      {groups.filter(group=>group.items.length>0).map(group=><section key={group.key} className="mb-5">
         <div className="mb-2 flex items-center gap-2">
           <h3 className="text-sm font-semibold text-slate-200">{group.title}</h3>
-          <span className="text-xs tabular-nums text-slate-500">{group.items.length}</span>
+          <span className="text-xs text-slate-500">{group.items.length}</span>
         </div>
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {group.items.map((plan) => {
-          const isLong = plan.direction === "LONG";
-          return <article key={plan.id} className="rounded-xl border border-slate-700 bg-slate-900 p-4 shadow-lg">
-            <div className="mb-3 flex items-start justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <span className="rounded-md bg-slate-800 px-2 py-1 text-[10px] font-semibold text-slate-300">Спостереження</span><span className={`rounded px-2 py-1 text-[10px] font-semibold ${plan.status === "ACTIVE" ? "bg-emerald-950 text-emerald-200" : "bg-amber-950 text-amber-200"}`}>{plan.status === "ACTIVE" ? (isInEntryZone(plan) ? "Підтверджено · у зоні" : "Підтверджено") : (isInEntryZone(plan) ? "У зоні" : "Очікування")}</span>
-                <h3 className="text-lg font-black">{plan.symbol}</h3>
-              </div>
-              <span className={`rounded-full px-2 py-1 text-xs font-bold ${isLong ? "bg-emerald-950 text-emerald-300" : "bg-rose-950 text-rose-300"}`}>{plan.direction}</span>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {group.items.map(plan=><button type="button" key={plan.id} onClick={()=>openPlan(plan)}
+            className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-left transition hover:border-cyan-600 hover:bg-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-400">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <strong className="text-sm text-slate-100">{plan.symbol}</strong>
+              <span className={plan.direction==="LONG"?"text-xs text-emerald-300":"text-xs text-rose-300"}>{plan.direction}</span>
             </div>
-            <p className="mb-2 text-xs text-amber-200">Аналіз виконаний; умови готової пропозиції ще не виконані. Це не рекомендація розміщувати заявку.</p>
-            
-            <div className="mb-3 flex items-end justify-between border-b border-slate-800 pb-3">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1"><p className={`text-sm font-bold text-slate-300`}>Потенціал {plan.score}/100</p><p className={`text-xs font-semibold ${plan.status === "ACTIVE" ? "text-emerald-300" : "text-amber-300"}`}>Готовність {plan.readiness?.met ?? "—"}/{plan.readiness?.total ?? 8}</p><p className="text-xs font-semibold text-emerald-300">R:R 1:{plan.riskReward.toFixed(2)}</p></div>
-              <p className="text-xs text-slate-400">Ціна зараз: <b className="text-slate-200">{price(plan.currentPrice)}</b></p>
+            <p className="mt-1 text-[11px] text-amber-300">Спостереження · не готово до заявки</p>
+            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+              <span className="text-slate-300">Limit <strong className="text-cyan-200">{price(plan.entryPrice)}</strong></span>
+              <span className="text-slate-400">R:R 1:{plan.riskReward.toFixed(2)}</span>
             </div>
-            <dl className="grid grid-cols-4 gap-2 border-y border-slate-800 py-3 text-[11px]">
-              <div className="min-w-0"><dt className="text-slate-500">Limit-вхід</dt><dd className="mt-1 break-all font-bold text-cyan-300">{price(plan.entryPrice)}</dd></div>
-              <div className="min-w-0"><dt className="text-slate-500">Зона</dt><dd className="mt-1 break-all text-slate-200">{price(plan.entryLow)}–{price(plan.entryHigh)}</dd></div>
-              <div className="min-w-0"><dt className="text-slate-500">Take Profit</dt><dd className="mt-1 break-all text-emerald-300">{price(plan.takeProfit2)}</dd></div>
-              <div className="min-w-0"><dt className="text-slate-500">Stop Loss</dt><dd className="mt-1 break-all text-rose-300">{price(plan.stopLoss)}</dd></div>
-            </dl>
-            <details className="mt-3 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
-              <summary className="cursor-pointer text-xs font-semibold text-slate-300">Пояснення, причини, ризики та правила для новачка</summary>
-              <div className="mt-3 space-y-3 text-xs leading-relaxed text-slate-300">
-                <p><strong className="text-slate-100">Що означає сценарій:</strong> {plan.summary}</p>
-                <p><strong className="text-amber-200">Чому ще не готово:</strong> {plan.qualityGate?.reasons.join("; ") || "Потрібно завершити незалежні перевірки 24h Limit-входу."}</p>
-                <p><strong className="text-slate-100">Технічні факти:</strong> {plan.reasons.join("; ")}</p>
-                <p><strong className="text-amber-200">Ризики:</strong> {plan.caution}</p>
-                <p><strong className="text-cyan-200">Що робити:</strong> {plan.nextStep}</p>
-                <p><strong className="text-amber-200">Перегляд сценарію:</strong> {plan.lifecycle?.setupReview ?? plan.invalidation}</p>
-                <p><strong className="text-rose-200">Stop Loss:</strong> {plan.lifecycle?.stopProtection ?? "Уточнюйте тригер у деталях Demo-ордера."}</p>
-                <p className="text-slate-400">Entry — ціна очікуваної Limit-заявки, зона — можливе відхилення ціни, Take Profit — ціль, Stop Loss — захисний рівень. Навіть збіг умов не гарантує виконання заявки чи прибутку.</p>
-              </div>
-            </details>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {bybitChartUrl(plan.symbol) && <a href={bybitChartUrl(plan.symbol)!} target="_blank" rel="noopener noreferrer"
-                className="rounded-lg border border-cyan-700 px-3 py-2 text-xs font-semibold text-cyan-200 hover:border-cyan-400">↗ Графік Bybit</a>}
+            <div className="mt-2 flex justify-between gap-2 text-[11px] text-slate-400">
+              <span>Оцінка {plan.score}/100 · Умови {plan.readiness?.met??0}/{plan.readiness?.total??8}</span>
+              <span className="text-cyan-300">Деталі ↗</span>
             </div>
-            <button onClick={() => openPlan(plan)} className="mt-3 w-full rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-700">Деталі аналізу</button>
-          </article>;
-        })}
+          </button>)}
         </div>
       </section>)}
     </section>}
