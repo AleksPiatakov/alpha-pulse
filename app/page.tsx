@@ -6,7 +6,7 @@ import Link from "next/link";
 import type { TradePlan } from "@/lib/trading";
 import { comparePlanPriority, isAtEntryZone } from "@/lib/plan-ranking";
 
-type SelectionDiagnostics = {availablePlans:number; technicalActive:number; qualityPassed:number; structuralEntryAndTarget:number; historicallyReachable24h:number;eligible24h:number;hiddenByFreshness:number;activeQualityFailures:number;qualityFailures:Array<{reason:string;count:number}>};
+type SelectionDiagnostics = {availablePlans:number; technicalActive:number; qualityPassed:number; structuralEntryAndTarget:number; historicallyReachable24h:number;eligible24h:number;hiddenByFreshness:number;activeQualityFailures:number;qualityFailures:Array<{reason:string;count:number}>;activeExamples:Array<{symbol:string;score:number;readiness:string;rr:number;distanceAtr:number|null;stopAtr:number|null;reasons:string[]}>};
 type RejectionCounts = Record<"candles" | "trend" | "volume" | "momentum" | "distance" | "prices" | "daily_level" | "reward_risk" | "error", number>;
 type ScanResponse = { success: boolean; scanned?: number; eligible?: number; analyzed?: number; batchSize?: number; scanConcurrency?: number; selectionDiagnostics?: SelectionDiagnostics; plans?: TradePlan[]; recommended24h?: TradePlan[]; recommended24hComplete?: boolean; entryHorizonHours?: number; covered?: number; category?: string; rejectionCounts?: RejectionCounts; generatedAt?: string; error?: string; universePages?: number; universeInstruments?: number; coveragePercent?: number; cycleCompleted?: boolean };
 const rejectionLabels: Array<[keyof RejectionCounts, string]> = [
@@ -126,6 +126,14 @@ export default function MarketScanner() {
           <p className="mt-2 text-slate-400">Це причини з фактичного аналізу збережених планів. Одна пара може порушувати кілька правил. Це не статистика всього ринку.</p>
           <div className="mt-2 space-y-1">
             {selectionDiagnostics.qualityFailures.map(item=><p key={item.reason}>{item.reason} — <strong>{item.count}</strong></p>)}
+          </div>
+          <div className="mt-3 space-y-2 border-t border-slate-800 pt-3">
+            <p className="font-medium text-slate-200">Числові показники відхилених ACTIVE-сценаріїв</p>
+            {selectionDiagnostics.activeExamples.map(item=><div key={item.symbol} className="rounded-md bg-slate-950/60 px-3 py-2">
+              <p className="font-semibold text-slate-100">{item.symbol}</p>
+              <p className="mt-1 text-slate-400">Оцінка {item.score}/100 (мін. 90) · Готовність {item.readiness} (потрібно 8/8) · R:R 1:{item.rr.toFixed(2)} (мін. 1:2) · Відстань {item.distanceAtr==null?"—":item.distanceAtr.toFixed(2)+" ATR"} (макс. 0,75 ATR) · Stop {item.stopAtr==null?"—":item.stopAtr.toFixed(2)+" ATR"}</p>
+              <p className="mt-1 text-amber-200">{item.reasons.join("; ")}</p>
+            </div>)}
           </div>
         </details>}
         {recommended24h.length ? <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
