@@ -28,7 +28,7 @@ test("refuses too little history or malformed candles rather than claiming a fil
   assert.equal(assessLimitEntry24h({...input,atr30m:0}).status,"INVALID");
 });
 test("same data yields identical result; direction matters",()=>{
-  const input={direction:"SHORT",currentPrice:100,entryPrice:101,atr30m:1,closed30m:history()};
+  const input={direction:"SHORT",currentPrice:100,entryPrice:100.5,atr30m:1,closed30m:history()};
   assert.deepEqual(assessLimitEntry24h(input),assessLimitEntry24h(structuredClone(input)));
   assert.equal(assessLimitEntry24h(input).status,"HISTORICALLY_REACHABLE");
 });
