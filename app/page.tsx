@@ -7,7 +7,7 @@ import type { TradePlan } from "@/lib/trading";
 import { comparePlanPriority, isAtEntryZone } from "@/lib/plan-ranking";
 
 type RejectionCounts = Record<"candles" | "trend" | "volume" | "momentum" | "distance" | "prices" | "daily_level" | "reward_risk" | "error", number>;
-type ScanResponse = { success: boolean; scanned?: number; eligible?: number; analyzed?: number; plans?: TradePlan[]; covered?: number; category?: string; rejectionCounts?: RejectionCounts; generatedAt?: string; error?: string; universePages?: number; universeInstruments?: number; coveragePercent?: number; cycleCompleted?: boolean };
+type ScanResponse = { success: boolean; scanned?: number; eligible?: number; analyzed?: number; plans?: TradePlan[]; recommended24h?: TradePlan[]; recommended24hComplete?: boolean; entryHorizonHours?: number; covered?: number; category?: string; rejectionCounts?: RejectionCounts; generatedAt?: string; error?: string; universePages?: number; universeInstruments?: number; coveragePercent?: number; cycleCompleted?: boolean };
 const rejectionLabels: Array<[keyof RejectionCounts, string]> = [
   ["candles", "Недостатньо свічок"], ["trend", "Немає узгодженого тренду"],
   ["volume", "Недостатній обсяг"], ["momentum", "Слабкий імпульс"],
@@ -27,6 +27,8 @@ const rankStyles = [
 export default function MarketScanner() {
   const router = useRouter();
   const [plans, setPlans] = useState<TradePlan[]>([]);
+  const [recommended24h,setRecommended24h] = useState<TradePlan[]>([]);
+  const [recommendationsComplete,setRecommendationsComplete] = useState(false);
   const [counts, setCounts] = useState({ scanned: 0, eligible: 0, analyzed: 0, covered: 0 });
   const [updatedAt, setUpdatedAt] = useState<string>();
   const [marketCoverage, setMarketCoverage] = useState({ pages: 0, instruments: 0, percent: 0, complete: false });
@@ -41,6 +43,8 @@ export default function MarketScanner() {
       const data = await response.json() as ScanResponse;
       if (!response.ok || !data.success) throw new Error(data.error || "Не вдалося оновити аналіз.");
       setPlans(data.plans ?? []);
+      setRecommended24h(data.recommended24h ?? []);
+      setRecommendationsComplete(data.recommended24hComplete === true);
       setCounts({ scanned: data.scanned ?? 0, eligible: data.eligible ?? 0, analyzed: data.analyzed ?? 0, covered: data.covered ?? 0 });
       setUpdatedAt(data.generatedAt); setRejectionCounts(data.rejectionCounts); setError(undefined);
       setMarketCoverage({ pages: data.universePages ?? 0, instruments: data.universeInstruments ?? 0,
@@ -102,6 +106,22 @@ export default function MarketScanner() {
           </div>
         </div>
       </div>
+      <section className="mb-5 rounded-xl border border-cyan-800/60 bg-slate-900/70 p-4">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-base font-semibold text-cyan-200">Limit-входи · горизонт 24 години · до 10 кандидатів</h3>
+          <span className="text-xs text-amber-200">{recommendationsComplete ? "Поточний обхід завершено; дані можуть застарівати" : "Попередній список · повний обхід ще триває"}</span>
+        </div>
+        <p className="mb-3 text-xs leading-relaxed text-slate-400">Лише технічно ACTIVE, з дослідним фільтром якості, структурною денною ціллю та історично досяжним відкладеним рівнем. Минулі торкання не є прогнозованою ймовірністю виконання заявки. Кожен план оновлюється окремо й може втратити актуальність до завершення обходу.</p>
+        {recommended24h.length ? <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {recommended24h.map((plan,index)=><button type="button" key={plan.id} onClick={()=>openPlan(plan)}
+            className="rounded-lg border border-slate-700 bg-slate-950/60 p-3 text-left hover:border-cyan-500">
+            <div className="flex justify-between gap-2"><span className="text-sm font-semibold">{index+1}. {plan.symbol} · {plan.direction}</span>
+              <span className="text-xs text-cyan-300">{plan.score}/100</span></div>
+            <p className="mt-2 text-xs text-slate-300">Limit {price(plan.entryPrice)} · SL {price(plan.stopLoss)} · TP {price(plan.takeProfit2)}</p>
+            <p className="mt-1 text-[11px] text-slate-400">24h історичні торкання: {plan.limitEntry24h?.historicalTouchRate == null ? "—" : (100*plan.limitEntry24h.historicalTouchRate).toFixed(1)+"%"} · {plan.limitEntry24h?.sampleWindows??0} перекривних вікон</p>
+          </button>)}
+        </div> : <p className="text-sm text-slate-400">Поки немає кандидатів, що пройшли всі попередні умови. Це не означає, що ринок уже повністю перевірено.</p>}
+      </section>
       <p className="mb-3 text-xs text-amber-200">«Підтверджено» означає технічну готовність MTF, не доказ прибутковості. Дослідний фільтр якості показано окремо. До завершення обходу це не рейтинг усього ринку.</p>
       {featuredCount === 0 && <section className="rounded-xl border border-slate-800 bg-slate-900/60 px-5 py-6 text-sm text-slate-300">
         <p className="font-semibold text-slate-100">Поки немає підтверджених сценаріїв або ціни в зоні входу.</p>
