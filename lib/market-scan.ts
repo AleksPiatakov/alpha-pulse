@@ -4,7 +4,7 @@ import { explainPlanLifecycle } from "./trade-plan-lifecycle.ts";
 import { closedMarketFeatures } from "./closed-market-features.ts";
 import { sealMarketInputSnapshot, type MarketInputSnapshot, type SnapshotTimeframes } from "./market-input-snapshot.ts";
 import { compareFrozenMarketPlan } from "./snapshot-parity.ts";
-import { assessLimitEntry24h, LIMIT_ENTRY_HORIZON_MS } from "./limit-entry-24h.ts";
+import { assessLimitEntry24h } from "./limit-entry-24h.ts";
 import { closedBarAt, observationMetadata, type MarketTimeframe } from "./market-observation-clock.ts";
 import { fetchLinearUniverse, matchUniverseTickers, type UniverseResult, type InstrumentMeta } from "./bybit-universe.ts";
 import { parseExecutionRules } from "./bybit-execution-rules.ts";
