@@ -6,7 +6,7 @@ import {useParams} from "next/navigation";
 import type {TradePlan} from "@/lib/trading";
 import {TradingChart} from "@/app/components/TradingChart";
 
-type AiExplanation={summary:string;caution:string;nextStep:string};
+type AiExplanation={marketContext:string;entryLogic:string;confirmationConditions:string[];invalidation:string;riskAnalysis:string;beginnerExplanation:string;nextAction:string};
 type AiStatus={state:string;code:string;message:string;model?:string};
 type AnalysisResponse={success:boolean;plan?:TradePlan|null;verified?:boolean;
   aiExplanation?:AiExplanation|null;aiStatus?:AiStatus;error?:string};
@@ -79,11 +79,13 @@ function AnalysisView(){
       const response=await fetch(`/api/analysis/${encodeURIComponent(symbol)}?ai=1`,{cache:"no-store"});
       const data=await response.json() as AnalysisResponse;
       if(!response.ok||!data.success)throw Error(data.error||"AI-аналіз недоступний.");
-      // Only display AI text if the server refreshed the exact displayed plan.
-      if(!data.plan||data.plan.id!==current?.id||
-        data.plan.observation?.observedAt!==current?.observation?.observedAt){
-        setAiStatus({state:"stale",code:"DATA_CHANGED",message:"За час AI-запиту ринок змінився. Онови аналіз перед читанням."});
+      // The report belongs to the newly reverified plan returned in the same
+      // response, not to a potentially stale browser snapshot.
+      if(!data.plan||!data.verified){
+        setAiStatus({state:"fallback",code:"NO_CURRENT_PLAN",message:"Зараз немає підтвердженого поточного плану для AI-аналізу."});
       }else{
+        setCurrent(data.plan);
+        setFreshness("verified");
         setAi(data.aiExplanation??null);
         setAiStatus(data.aiStatus??null);
       }
@@ -188,10 +190,16 @@ function AnalysisView(){
               {aiLoading?"Перевіряю з AI…":"Отримати AI-аналіз цієї пари"}
             </button>
             {aiStatus&&<p role="status" className="mt-3 text-xs text-slate-400">{aiStatus.state==="ok"||aiStatus.state==="cached"?"AI відповів: ":"AI недоступний: "}{aiStatus.message}</p>}
-            {ai&&<div className="mt-3 space-y-3 rounded-lg border border-slate-700 bg-slate-950/70 p-3 leading-relaxed">
-              <p><strong className="text-slate-100">Оцінка:</strong> {ai.summary}</p>
-              <p><strong className="text-rose-200">Ризики:</strong> {ai.caution}</p>
-              <p><strong className="text-cyan-200">Що далі:</strong> {ai.nextStep}</p>
+            {ai&&<div className="mt-3 space-y-4 rounded-lg border border-slate-700 bg-slate-950/70 p-3 leading-relaxed">
+              <div><h3 className="font-semibold text-slate-100">Стан ринку</h3><p className="mt-1 text-slate-300">{ai.marketContext}</p></div>
+              <div><h3 className="font-semibold text-cyan-200">Чому саме цей рівень Entry</h3><p className="mt-1 text-slate-300">{ai.entryLogic}</p></div>
+              <div><h3 className="font-semibold text-slate-100">Умови підтвердження</h3>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-300">{ai.confirmationConditions.map((c,i)=><li key={i}>{c}</li>)}</ul>
+              </div>
+              <div><h3 className="font-semibold text-amber-200">Коли ідея перестає діяти</h3><p className="mt-1 text-slate-300">{ai.invalidation}</p></div>
+              <div><h3 className="font-semibold text-rose-200">Ризики</h3><p className="mt-1 text-slate-300">{ai.riskAnalysis}</p></div>
+              <div><h3 className="font-semibold text-slate-100">Пояснення для новачка</h3><p className="mt-1 text-slate-300">{ai.beginnerExplanation}</p></div>
+              <div><h3 className="font-semibold text-cyan-200">Наступна дія</h3><p className="mt-1 text-slate-300">{ai.nextAction}</p></div>
             </div>}
           </details>
         </section>
