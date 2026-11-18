@@ -10,6 +10,7 @@ import { orderMarketScan, selectSweepBatch } from "./market-scan-scheduler.ts";
 import { summarize24hSelection, type SelectionDiagnostics } from "./scan-selection-diagnostics.ts";
 import { closedBarAt, completedBarCutoff, observationMetadata, type MarketTimeframe } from "./market-observation-clock.ts";
 import { ClosedCandleCache } from "./closed-candle-cache.ts";
+import { updateWatchedScenario, ageWatchedScenario, selectWatchedScenarios, type WatchedScenario } from "./scenario-watchlist.ts";
 import { fetchLinearUniverse, matchUniverseTickers, type UniverseResult, type InstrumentMeta } from "./bybit-universe.ts";
 import { parseExecutionRules } from "./bybit-execution-rules.ts";
 import { roundToTick } from "./technical-plan-core.ts";
@@ -153,6 +154,7 @@ async function currentUniverse(): Promise<UniverseResult> {
 }
 const MAX_VISIBLE = 100;
 const seenPlans = new Map<string, { plan: TradePlan; checkedAt: number }>();
+const monitoredScenarios = new Map<string,WatchedScenario>();
 const visited = new Set<string>();
 const visitedAt = new Map<string,number>();
 const failedInSweep = new Set<string>();
@@ -167,6 +169,8 @@ const CONFIRMATION_FRESHNESS = 4 * 60_000;
 export type ScanResult = {
   plans: TradePlan[];
   recommended24h: TradePlan[];
+  watchedScenarios: WatchedScenario[];
+  watchStatusCounts: {watching:number;ready:number;stale:number;expired:number;unavailable:number};
   recommended24hComplete: boolean;
   entryHorizonHours: 24;
   scanned: number;
@@ -198,6 +202,7 @@ async function doScan(): Promise<ScanResult> {
   const universe = new Set(eligible.map((ticker) => ticker.symbol));
   const metadataBySymbol = new Map(registry.instruments.map((item) => [item.symbol, item]));
   for (const symbol of seenPlans.keys()) if (!universe.has(symbol)) seenPlans.delete(symbol);
+  for (const symbol of monitoredScenarios.keys()) if (!universe.has(symbol)) monitoredScenarios.delete(symbol);
   for (const symbol of visited) if (!universe.has(symbol)) { visited.delete(symbol); visitedAt.delete(symbol); }
   // One inexpensive all-market ticker pass chooses priority. Every symbol still
   // receives the expensive four-timeframe analysis during the sweep.
@@ -240,9 +245,17 @@ async function doScan(): Promise<ScanResult> {
     else failedInSweep.delete(symbol);
     if (result.status === "fulfilled" && result.value) {
       seenPlans.set(symbol, { plan: result.value, checkedAt: now });
+      const updated=updateWatchedScenario(monitoredScenarios.get(symbol),result.value,now);
+      if(updated)monitoredScenarios.set(symbol,updated);
     } else {
       seenPlans.delete(symbol);
-      if (result.status === "rejected") rejectionCounts.error++;
+      if(result.status==="rejected"){
+        rejectionCounts.error++;
+        // Network failure is NOT evidence that the technical setup was invalidated.
+      }else {
+        const updated=updateWatchedScenario(monitoredScenarios.get(symbol),null,now);
+        if(updated)monitoredScenarios.set(symbol,updated);
+      }
     }
   });
   for (const [symbol, record] of seenPlans) {
@@ -258,13 +271,29 @@ async function doScan(): Promise<ScanResult> {
     .slice(0, MAX_VISIBLE);
   // Keep a separate, strictly gated Top-10 shortlist. Until the current
   // sweep visits all symbols it is ONLY provisional, never a market-wide Top 10.
+  for(const [symbol,scenario] of monitoredScenarios){
+    if(now-scenario.validUntil>60*60_000){
+      monitoredScenarios.delete(symbol);
+      continue;
+    }
+    monitoredScenarios.set(symbol,ageWatchedScenario(scenario,now));
+  }
+  const watchedValues=[...monitoredScenarios.values()];
+  const watchedScenarios=selectWatchedScenarios(watchedValues,20);
+  const watchStatusCounts={
+    watching:watchedValues.filter(s=>s.state==="WATCHING").length,
+    ready:watchedValues.filter(s=>s.state==="READY_FOR_REVIEW").length,
+    stale:watchedValues.filter(s=>s.state==="STALE").length,
+    expired:watchedValues.filter(s=>s.state==="EXPIRED").length,
+    unavailable:watchedValues.filter(s=>s.state==="NO_CURRENT_PLAN").length,
+  };
   const recommended24h = select24hLimitRecommendations(allPlans,10);
   const selectionDiagnostics = summarize24hSelection(allPlans);
   if (visited.size === eligible.length) completedSweeps++;
   const allSymbolsRecentlyChecked = visited.size === eligible.length &&
     failedInSweep.size === 0 &&
     eligible.every(t => now - (visitedAt.get(t.symbol) ?? 0) <= CONFIRMATION_FRESHNESS);
-  return { plans, recommended24h, recommended24hComplete: allSymbolsRecentlyChecked,
+  return { plans, recommended24h, watchedScenarios, watchStatusCounts, recommended24hComplete: allSymbolsRecentlyChecked,
     entryHorizonHours: 24 as const, scanned: data.result.list.length, eligible: eligible.length,
     analyzed: batch.length, covered: visited.size,
     batchSize: CYCLE_BATCH, scanConcurrency: CYCLE_CONCURRENCY,
