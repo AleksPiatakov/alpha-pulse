@@ -7,11 +7,11 @@ export async function GET() {
   try {
     const { scanned, eligible, analyzed, covered, watchStatusCounts, category, rejectionCounts,
       universePages, universeInstruments, unsupportedInstruments,
-      coveragePercent, cycleCompleted, completedSweeps } = await scanTechnicalPlans();
+      coveragePercent, cycleCompleted, completedSweeps, freshChecked, staleChecked, oldestCheckedAgeSeconds } = await scanTechnicalPlans();
     return NextResponse.json({
       success: true, scanned, eligible, analyzed, covered, watchStatusCounts, category,
       universePages, universeInstruments, unsupportedInstruments,
-      coveragePercent, cycleCompleted, completedSweeps, rejectionCounts,
+      coveragePercent, cycleCompleted, completedSweeps, freshChecked, staleChecked, oldestCheckedAgeSeconds, rejectionCounts,
       generatedAt: new Date().toISOString(),
     });
   } catch (caught) {
