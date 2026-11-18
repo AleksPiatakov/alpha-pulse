@@ -17,7 +17,8 @@ test("selection diagnostics explain each strict filtering stage",()=>{
  ]);
  assert.deepEqual(r,{availablePlans:6,technicalActive:5,qualityPassed:4,
   structuralEntryAndTarget:3,historicallyReachable24h:2,eligible24h:1,
-  hiddenByFreshness:1,activeQualityFailures:1,qualityFailures:[{reason:"Фільтр якості не повернув причини.",count:1}]});
+  hiddenByFreshness:1,activeQualityFailures:1,qualityFailures:[{reason:"Фільтр якості не повернув причини.",count:1}],
+  activeExamples:[{symbol:"BTCUSDT",score:95,readiness:"0/8",rr:2.5,distanceAtr:null,stopAtr:null,reasons:[]} ]});
 });
 test("empty sample stays empty rather than fabricating candidate",()=>{
  assert.equal(summarize24hSelection([]).eligible24h,0);
@@ -34,4 +35,12 @@ test("reports independent reasons for each rejected ACTIVE candidate",()=>{
   {reason:"Недостатня оцінка сигналу.",count:2},
   {reason:"Низька готовність.",count:1},
  ]);
+});
+
+test("read-only ACTIVE diagnostics contain exact numeric gate inputs",()=>{
+ const r=summarize24hSelection([plan({symbol:"ETHUSDT",score:84,riskReward:1.3,
+  readiness:{met:8,total:8},qualityGate:{passed:false,reasons:["Недостатня оцінка сигналу."],stopAtr:1.7},
+  limitEntry24h:{status:"HISTORICALLY_REACHABLE",sampleWindows:120,horizonHours:24,distanceAtr:1.25}})]);
+ assert.deepEqual(r.activeExamples,[{symbol:"ETHUSDT",score:84,readiness:"8/8",rr:1.3,
+  distanceAtr:1.25,stopAtr:1.7,reasons:["Недостатня оцінка сигналу."]}]);
 });
