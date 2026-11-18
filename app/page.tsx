@@ -6,8 +6,9 @@ import Link from "next/link";
 import type { TradePlan } from "@/lib/trading";
 import { comparePlanPriority, isAtEntryZone } from "@/lib/plan-ranking";
 
+type SelectionDiagnostics = {availablePlans:number; technicalActive:number; qualityPassed:number; structuralEntryAndTarget:number; historicallyReachable24h:number;eligible24h:number;hiddenByFreshness:number};
 type RejectionCounts = Record<"candles" | "trend" | "volume" | "momentum" | "distance" | "prices" | "daily_level" | "reward_risk" | "error", number>;
-type ScanResponse = { success: boolean; scanned?: number; eligible?: number; analyzed?: number; batchSize?: number; scanConcurrency?: number; plans?: TradePlan[]; recommended24h?: TradePlan[]; recommended24hComplete?: boolean; entryHorizonHours?: number; covered?: number; category?: string; rejectionCounts?: RejectionCounts; generatedAt?: string; error?: string; universePages?: number; universeInstruments?: number; coveragePercent?: number; cycleCompleted?: boolean };
+type ScanResponse = { success: boolean; scanned?: number; eligible?: number; analyzed?: number; batchSize?: number; scanConcurrency?: number; selectionDiagnostics?: SelectionDiagnostics; plans?: TradePlan[]; recommended24h?: TradePlan[]; recommended24hComplete?: boolean; entryHorizonHours?: number; covered?: number; category?: string; rejectionCounts?: RejectionCounts; generatedAt?: string; error?: string; universePages?: number; universeInstruments?: number; coveragePercent?: number; cycleCompleted?: boolean };
 const rejectionLabels: Array<[keyof RejectionCounts, string]> = [
   ["candles", "Недостатньо свічок"], ["trend", "Немає узгодженого тренду"],
   ["volume", "Недостатній обсяг"], ["momentum", "Слабкий імпульс"],
@@ -33,6 +34,7 @@ export default function MarketScanner() {
   const [updatedAt, setUpdatedAt] = useState<string>();
   const [marketCoverage, setMarketCoverage] = useState({ pages: 0, instruments: 0, percent: 0, complete: false });
   const [rejectionCounts, setRejectionCounts] = useState<RejectionCounts>();
+  const [selectionDiagnostics,setSelectionDiagnostics] = useState<SelectionDiagnostics>();
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(true);
   const [showWaiting, setShowWaiting] = useState(false);
@@ -46,7 +48,7 @@ export default function MarketScanner() {
       setRecommended24h(data.recommended24h ?? []);
       setRecommendationsComplete(data.recommended24hComplete === true);
       setCounts({ scanned: data.scanned ?? 0, eligible: data.eligible ?? 0, analyzed: data.analyzed ?? 0, covered: data.covered ?? 0, batchSize: data.batchSize ?? 0, scanConcurrency: data.scanConcurrency ?? 0 });
-      setUpdatedAt(data.generatedAt); setRejectionCounts(data.rejectionCounts); setError(undefined);
+      setUpdatedAt(data.generatedAt); setRejectionCounts(data.rejectionCounts);setSelectionDiagnostics(data.selectionDiagnostics); setError(undefined);
       setMarketCoverage({ pages: data.universePages ?? 0, instruments: data.universeInstruments ?? 0,
         percent: data.coveragePercent ?? 0, complete: data.cycleCompleted ?? false });
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Помилка сканування."); }
@@ -110,7 +112,14 @@ export default function MarketScanner() {
           <span className="text-xs text-amber-200">{recommendationsComplete ? "Поточний обхід завершено; дані можуть застарівати" : "Попередній список · повний обхід ще триває"}</span>
         </div>
         <p className="mb-3 text-xs leading-relaxed text-slate-400">Лише технічно ACTIVE, з дослідним фільтром якості, структурною денною ціллю та історично досяжним відкладеним рівнем. Минулі торкання не є прогнозованою ймовірністю виконання заявки. Кожен план оновлюється окремо й може втратити актуальність до завершення обходу.</p>
-        {recommended24h.length ? <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+        {selectionDiagnostics && <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-400">
+          <span>Аналізів у пам’яті: <strong className="text-slate-200">{selectionDiagnostics.availablePlans}</strong></span>
+          <span>Технічно ACTIVE: <strong className="text-slate-200">{selectionDiagnostics.technicalActive}</strong></span>
+          <span>Фільтр якості: <strong className="text-slate-200">{selectionDiagnostics.qualityPassed}</strong></span>
+          <span>Підтверджені Entry/TP: <strong className="text-slate-200">{selectionDiagnostics.structuralEntryAndTarget}</strong></span>
+          <span>24h Limit: <strong className="text-cyan-200">{selectionDiagnostics.eligible24h}</strong></span>
+        </div>}
+        {recommended24h.length ? <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3"
           {recommended24h.map((plan,index)=><div key={plan.id}
             className="rounded-lg border border-slate-700 bg-slate-950/60 p-3 text-left">
             <div className="flex justify-between gap-2"><span className="text-sm font-semibold">{recommendationsComplete ? `TOP ${index+1}` : `Кандидат ${index+1}`} · {plan.symbol} · {plan.direction}</span>
