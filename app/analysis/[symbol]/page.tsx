@@ -16,6 +16,7 @@ const when=(timestamp:number)=>new Intl.DateTimeFormat("uk-UA",{
   hour:"2-digit",minute:"2-digit",timeZoneName:"short",
 }).format(timestamp);
 const bybit=(symbol:string)=>`https://www.bybit.com/trade/usdt/${symbol}`;
+const planSignature=(p:TradePlan)=>JSON.stringify([p.id,p.direction,p.entryPrice,p.stopLoss,p.takeProfit2,p.status,p.qualityGate?.passed,p.readiness?.met]);
 
 function AnalysisView(){
   const params=useParams();
@@ -24,6 +25,7 @@ function AnalysisView(){
   const [current,setCurrent]=useState<TradePlan|null>(null);
   const [freshness,setFreshness]=useState<"checking"|"verified"|"not-found"|"unavailable">("checking");
   const [ai,setAi]=useState<AiExplanation|null>(null);
+  const [aiSignature,setAiSignature]=useState<string|null>(null);
   const [aiStatus,setAiStatus]=useState<AiStatus|null>(null);
   const [aiLoading,setAiLoading]=useState(false);
   const [detailError,setDetailError]=useState("");
@@ -48,9 +50,8 @@ function AnalysisView(){
       setCurrent(data.plan??null);
       setFreshness(data.verified&&data.plan?"verified":"not-found");
       setDetailError("");
-      // Previous AI text belongs to the older observation and must not
-      // silently be presented as advice for a new market snapshot.
-      setAi(null);setAiStatus(null);
+      // The visible AI report is matched to the underlying levels/conditions,
+      // so periodic quote refreshes do not interrupt reading its explanation.
     }catch(error){
       setFreshness("unavailable");
       setDetailError(error instanceof Error?error.message:"Не вдалося перевірити ринкові дані.");
@@ -67,6 +68,7 @@ function AnalysisView(){
     plan.structure?.confirmedEntry===true&&plan.structure?.confirmedTarget===true&&
     plan.limitEntry24h?.status==="HISTORICALLY_REACHABLE"&&
     plan.limitEntry24h?.sampleWindows>=60&&plan.riskReward>=2;
+  const aiMatchesCurrent=!!plan&&!!aiSignature&&planSignature(plan)===aiSignature;
   const conditions=plan?[
     {label:"Технічний сигнал",ok:plan.status==="ACTIVE"},
     {label:"Дослідний фільтр якості",ok:plan.qualityGate?.passed===true},
@@ -90,6 +92,7 @@ function AnalysisView(){
         setCurrent(data.plan);
         setFreshness("verified");
         setAi(data.aiExplanation??null);
+        setAiSignature(planSignature(data.plan));
         setAiStatus(data.aiStatus??null);
       }
     }catch(error){
@@ -193,7 +196,8 @@ function AnalysisView(){
               {aiLoading?"Перевіряю з AI…":"Отримати AI-аналіз цієї пари"}
             </button>
             {aiStatus&&<p role="status" className="mt-3 text-xs text-slate-400">{aiStatus.state==="ok"||aiStatus.state==="cached"?"AI відповів: ":"AI недоступний: "}{aiStatus.message}</p>}
-            {ai&&<div className="mt-3 space-y-4 rounded-lg border border-slate-700 bg-slate-950/70 p-3 leading-relaxed">
+            {ai&&!aiMatchesCurrent&&<p className="mt-3 text-xs text-amber-200">Після AI-аналізу змінилися рівні або умови плану. Запроси новий аналіз.</p>}
+            {ai&&aiMatchesCurrent&&<div className="mt-3 space-y-4 rounded-lg border border-slate-700 bg-slate-950/70 p-3 leading-relaxed">
               <div><h3 className="font-semibold text-slate-100">Стан ринку</h3><p className="mt-1 text-slate-300">{ai.marketContext}</p></div>
               <div><h3 className="font-semibold text-cyan-200">Чому саме цей рівень Entry</h3><p className="mt-1 text-slate-300">{ai.entryLogic}</p></div>
               <div><h3 className="font-semibold text-slate-100">Умови підтвердження</h3>
