@@ -120,7 +120,7 @@ function AnalysisView(){
               {ready?"Пройшов дослідний відбір":"Сценарій спостереження"}
             </span>
             <span className={`text-xs font-semibold ${plan.direction==="LONG"?"text-emerald-300":"text-rose-300"}`}>{plan.direction}</span>
-            <span className="text-xs text-slate-400">Оцінка {plan.score}/100 · Готовність {plan.readiness.met}/{plan.readiness.total}</span>
+            <span className="text-xs text-slate-400">Оцінка {plan.score}/100 · Готовність {plan.readiness?.met??"—"}/{plan.readiness?.total??8}</span>
           </div>
           <p className="mt-3 text-base font-medium">{ready?"Є технічно підтверджений план Limit-входу.":"Ідея аналізується; розміщення заявки передчасне."}</p>
           <p className="mt-1 text-sm leading-relaxed text-slate-400">{plan.summary}</p>
