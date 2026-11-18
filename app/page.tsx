@@ -7,8 +7,10 @@ import type { TradePlan } from "@/lib/trading";
 import { comparePlanPriority } from "@/lib/plan-ranking";
 
 type SelectionDiagnostics = {availablePlans:number; technicalActive:number; qualityPassed:number; structuralEntryAndTarget:number; historicallyReachable24h:number;eligible24h:number;hiddenByFreshness:number;activeQualityFailures:number;qualityFailures:Array<{reason:string;count:number}>;activeExamples:Array<{symbol:string;score:number;readiness:string;rr:number;distanceAtr:number|null;stopAtr:number|null;reasons:string[]}>};
+type WatchedScenario = {symbol:string;direction:"LONG"|"SHORT";state:"WATCHING"|"READY_FOR_REVIEW"|"STALE"|"EXPIRED"|"NO_CURRENT_PLAN";firstSeenAt:number;lastCheckedAt:number;validUntil:number;transitions:number;entry:number;stop:number;target:number;rr:number;score:number;confirmedConditions:string[];pendingConditions:string[];note:string;hasFreshPlan:boolean;orderAuthorized:false};
+type WatchStatusCounts={watching:number;ready:number;stale:number;expired:number;unavailable:number};
 type RejectionCounts = Record<"candles" | "trend" | "volume" | "momentum" | "distance" | "prices" | "daily_level" | "reward_risk" | "error", number>;
-type ScanResponse = { success: boolean; scanned?: number; eligible?: number; analyzed?: number; batchSize?: number; scanConcurrency?: number; selectionDiagnostics?: SelectionDiagnostics; plans?: TradePlan[]; recommended24h?: TradePlan[]; recommended24hComplete?: boolean; entryHorizonHours?: number; covered?: number; category?: string; rejectionCounts?: RejectionCounts; generatedAt?: string; error?: string; universePages?: number; universeInstruments?: number; coveragePercent?: number; cycleCompleted?: boolean };
+type ScanResponse = { success: boolean; scanned?: number; eligible?: number; analyzed?: number; batchSize?: number; scanConcurrency?: number; selectionDiagnostics?: SelectionDiagnostics; plans?: TradePlan[]; recommended24h?: TradePlan[]; watchedScenarios?: WatchedScenario[]; watchStatusCounts?: WatchStatusCounts; recommended24hComplete?: boolean; entryHorizonHours?: number; covered?: number; category?: string; rejectionCounts?: RejectionCounts; generatedAt?: string; error?: string; universePages?: number; universeInstruments?: number; coveragePercent?: number; cycleCompleted?: boolean };
 const rejectionLabels: Array<[keyof RejectionCounts, string]> = [
   ["candles", "Недостатньо свічок"], ["trend", "Немає узгодженого тренду"],
   ["volume", "Недостатній обсяг"], ["momentum", "Слабкий імпульс"],
@@ -24,6 +26,8 @@ export default function MarketScanner() {
   const router = useRouter();
   const [plans, setPlans] = useState<TradePlan[]>([]);
   const [recommended24h,setRecommended24h] = useState<TradePlan[]>([]);
+  const [watchedScenarios,setWatchedScenarios]=useState<WatchedScenario[]>([]);
+  const [watchStatusCounts,setWatchStatusCounts]=useState<WatchStatusCounts>({watching:0,ready:0,stale:0,expired:0,unavailable:0});
   const [recommendationsComplete,setRecommendationsComplete] = useState(false);
   const [counts, setCounts] = useState({ scanned: 0, eligible: 0, analyzed: 0, covered: 0, batchSize: 0, scanConcurrency: 0 });
   const [updatedAt, setUpdatedAt] = useState<string>();
@@ -41,6 +45,8 @@ export default function MarketScanner() {
       if (!response.ok || !data.success) throw new Error(data.error || "Не вдалося оновити аналіз.");
       setPlans(data.plans ?? []);
       setRecommended24h(data.recommended24h ?? []);
+      setWatchedScenarios(data.watchedScenarios ?? []);
+      setWatchStatusCounts(data.watchStatusCounts ?? {watching:0,ready:0,stale:0,expired:0,unavailable:0});
       setRecommendationsComplete(data.recommended24hComplete === true);
       setCounts({ scanned: data.scanned ?? 0, eligible: data.eligible ?? 0, analyzed: data.analyzed ?? 0, covered: data.covered ?? 0, batchSize: data.batchSize ?? 0, scanConcurrency: data.scanConcurrency ?? 0 });
       setUpdatedAt(data.generatedAt); setRejectionCounts(data.rejectionCounts);setSelectionDiagnostics(data.selectionDiagnostics); setError(undefined);
@@ -151,6 +157,29 @@ export default function MarketScanner() {
         </div> : <p className="text-sm text-slate-400">Поки немає кандидатів, що пройшли всі попередні умови. Це не означає, що ринок уже повністю перевірено.</p>}
       </section>
       <p className="mb-3 text-xs text-amber-200">«Підтверджено» означає технічну готовність MTF, не доказ прибутковості. Дослідний фільтр якості показано окремо. До завершення обходу це не рейтинг усього ринку.</p>
+      <section className="mb-5 rounded-xl border border-slate-800 bg-slate-900/70 p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-base font-semibold text-slate-100">Перспективні сценарії · очікуємо підтвердження</h3>
+          <span className="text-xs text-slate-400">Спостереження {watchStatusCounts.watching} · Застарілі {watchStatusCounts.stale} · Перевірка недоступна {watchStatusCounts.unavailable}</span>
+        </div>
+        <p className="mb-3 text-xs text-slate-400">Це технічно розраховані ідеї, а не готові заявки. Після нових завершених свічок чи змін ціни правила перевіряються знову. Горизонт 24 години від першого аналізу; це не термін GTC-заявки.</p>
+        {watchedScenarios.length===0?<p className="text-sm text-slate-400">Наразі немає свіжих сценаріїв очікування. Сканування триває; неповні дані не замінюються прогнозами.</p>:
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {watchedScenarios.map(s=><Link href={`/analysis/${s.symbol}`} key={s.symbol}
+              className="rounded-lg border border-slate-700 bg-slate-950/50 p-3 transition hover:border-cyan-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-400">
+              <div className="flex items-center justify-between gap-2"><strong className="text-sm">{s.symbol}</strong>
+                <span className={s.direction==="LONG"?"text-xs text-emerald-300":"text-xs text-rose-300"}>{s.direction}</span></div>
+              <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-300">
+                <span>Limit <strong className="text-cyan-200">{price(s.entry)}</strong></span>
+                <span>R:R 1:{s.rr.toFixed(2)}</span>
+                <span>{s.confirmedConditions.length}/{s.confirmedConditions.length+s.pendingConditions.length} умов</span>
+              </div>
+              <p className="mt-2 line-clamp-2 text-xs text-amber-200">Очікуємо: {s.pendingConditions.slice(0,2).join("; ")}</p>
+              <p className="mt-2 text-[11px] text-slate-400">До {new Intl.DateTimeFormat("uk-UA",{timeZone:"Europe/Ljubljana",day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}).format(s.validUntil)} · Любляна</p>
+              <p className="mt-1 text-[11px] text-cyan-300">Відкрити повний аналіз ↗</p>
+            </Link>)}
+          </div>}
+      </section>
       {featuredCount === 0 && <section className="rounded-xl border border-slate-800 bg-slate-900/60 px-5 py-6 text-sm text-slate-300">
         <p className="font-semibold text-slate-100">Поки немає сценаріїв, що пройшли суворий 24h Limit-відбір.</p>
         <p className="mt-1 text-slate-400">Непідтверджені результати доступні в розділі «Спостереження». Ринок продовжує скануватися; суворі пороги не знижуються заради заповнення TOP.</p>
