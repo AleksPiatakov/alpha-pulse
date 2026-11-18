@@ -119,6 +119,7 @@ export default function MarketScanner() {
               <span className="text-xs text-cyan-300">{plan.score}/100</span></div>
             <p className="mt-2 text-xs text-slate-300">Limit {price(plan.entryPrice)} · SL {price(plan.stopLoss)} · TP {price(plan.takeProfit2)}</p>
             <p className="mt-1 text-[11px] text-slate-400">24h історичні торкання: {plan.limitEntry24h?.historicalTouchRate == null ? "—" : (100*plan.limitEntry24h.historicalTouchRate).toFixed(1)+"%"} · {plan.limitEntry24h?.sampleWindows??0} перекривних вікон</p>
+            <p className="mt-1 text-[11px] text-slate-500">Горизонт Entry: {plan.observation?.observedAt ? new Date(plan.observation.observedAt).toLocaleString("uk-UA") : "—"} → {plan.observation?.observedAt ? new Date(plan.observation.observedAt+86_400_000).toLocaleString("uk-UA") : "—"} · це не термін дії GTC-ордера</p>
           </button>)}
         </div> : <p className="text-sm text-slate-400">Поки немає кандидатів, що пройшли всі попередні умови. Це не означає, що ринок уже повністю перевірено.</p>}
       </section>
