@@ -10,6 +10,7 @@ export interface TradePlan {
   entryPrice: number; entryLow: number; entryHigh: number; stopLoss: number;
   takeProfit1: number; takeProfit2: number; riskReward: number; expiresAt: string;
   featureSource?: "closed-1h-candles";
+  limitEntry24h?: { horizonHours: 24; status: "HISTORICALLY_REACHABLE" | "OUTSIDE_OBSERVED_RANGE" | "ALREADY_AT_OR_BEYOND" | "INVALID" | "INSUFFICIENT_HISTORY"; sampleWindows: number; historicalTouchRate: number | null; distanceAtr: number | null; caution: string };
   observation?: { observedAt: number; last30mClose: number | null; last1hClose: number | null; last4hClose: number | null; lastDailyClose: number | null };
   readiness?: { met: number; total: number; missing: string[] };
   qualityGate?: { passed: boolean; reasons: string[]; policy: "intraday-quality-v1"; stopAtr: number | null; rewardRisk: number | null };
