@@ -17,11 +17,11 @@ async function tick() {
     }
     const result = await response.json();
     if (!response.ok || result?.success !== true) throw new Error(result?.error ?? `Scanner API HTTP ${response.status}`);
-    if (![result.covered, result.eligible, result.analyzed, result.universeInstruments, result.universePages].every(Number.isFinite) || result.eligible <= 0 || result.covered > result.eligible) {
+    if (![result.covered, result.eligible, result.analyzed, result.universeInstruments, result.universePages].every(Number.isFinite) || result.eligible <= 0 || result.covered > result.eligible || (result.freshChecked ?? 0) + (result.staleChecked ?? 0) + (result.failedChecked ?? 0) + (result.unchecked ?? 0) !== result.eligible) {
       throw new Error("Scanner API returned inconsistent market coverage; not reporting a successful sweep.");
     }
     const stamp = new Date().toISOString();
-    console.log(`[${stamp}] coverage ${result.covered}/${result.eligible} (${result.coveragePercent}%) | this batch ${result.analyzed} | sweep ${result.cycleCompleted ? "complete" : "in progress"} | registry ${result.universeInstruments} active instruments / ${result.universePages} pages | sweeps ${result.completedSweeps ?? "?"} | fresh ${result.freshChecked ?? "?"}/${result.eligible}, stale-checked ${result.staleChecked ?? "?"}, oldest ${result.oldestCheckedAgeSeconds ?? "?"}s | watching ${result.watchStatusCounts?.watching ?? 0}, review-ready ${result.watchStatusCounts?.ready ?? 0}, stale ${result.watchStatusCounts?.stale ?? 0}, expired ${result.watchStatusCounts?.expired ?? 0}, unavailable ${result.watchStatusCounts?.unavailable ?? 0} (research-only; not orders)`);
+    console.log(`[${stamp}] coverage ${result.covered}/${result.eligible} (${result.coveragePercent}%) | this batch ${result.analyzed} | sweep ${result.cycleCompleted ? "complete" : "in progress"} | registry ${result.universeInstruments} active instruments / ${result.universePages} pages | sweeps ${result.completedSweeps ?? "?"} | fresh ${result.freshChecked ?? "?"}/${result.eligible}, stale-checked ${result.staleChecked ?? "?"}, failed ${result.failedChecked ?? "?"}, not-visited ${result.unchecked ?? "?"}, oldest ${result.oldestCheckedAgeSeconds ?? "?"}s | watching ${result.watchStatusCounts?.watching ?? 0}, review-ready ${result.watchStatusCounts?.ready ?? 0}, stale ${result.watchStatusCounts?.stale ?? 0}, expired ${result.watchStatusCounts?.expired ?? 0}, unavailable ${result.watchStatusCounts?.unavailable ?? 0} (research-only; not orders)`);
   } catch (error) {
     console.error(`[${new Date().toISOString()}] scan failed: ${error instanceof Error ? error.message : String(error)}`);
   }
