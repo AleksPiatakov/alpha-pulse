@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { verifyCurrentTechnicalPlan } from "@/lib/market-scan";
-import { createAiExplanations } from "@/lib/ai-explanations";
+import { createDetailedAiReport } from "@/lib/ai-detailed-analysis";
 
 // Research display only; this endpoint never creates or changes orders.
 export async function GET(request: Request, context: {params: Promise<{symbol:string}>}) {
@@ -15,10 +15,10 @@ export async function GET(request: Request, context: {params: Promise<{symbol:st
         aiStatus:{state:"no_plans",code:"NO_CURRENT_PLAN",message:"На поточних даних немає перевіреного сценарію."}},
         {headers:{"Cache-Control":"no-store"}});
     const wantAi=new URL(request.url).searchParams.get("ai")==="1";
-    const ai=wantAi?await createAiExplanations([plan]):null;
+    const ai=wantAi?await createDetailedAiReport(plan):null;
     return NextResponse.json({
       success:true,verified:true,plan,
-      aiExplanation:ai?.explanations[plan.id]??null,
+      aiExplanation:ai?.report??null,
       aiStatus:ai?.status??{state:"not_requested",code:"ON_DEMAND",message:"AI-аналіз запускається вручну."},
       observedAt:plan.observation?.observedAt??null,orderEnabled:false,
     },{headers:{"Cache-Control":"no-store"}});
