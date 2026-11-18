@@ -21,7 +21,7 @@ async function tick() {
       throw new Error("Scanner API returned inconsistent market coverage; not reporting a successful sweep.");
     }
     const stamp = new Date().toISOString();
-    console.log(`[${stamp}] coverage ${result.covered}/${result.eligible} (${result.coveragePercent}%) | this batch ${result.analyzed} | sweep ${result.cycleCompleted ? "complete" : "in progress"} | registry ${result.universeInstruments} active instruments / ${result.universePages} pages | sweeps ${result.completedSweeps ?? "?"} | watching ${result.watchStatusCounts?.watching ?? 0}, review-ready ${result.watchStatusCounts?.ready ?? 0}, stale ${result.watchStatusCounts?.stale ?? 0}, expired ${result.watchStatusCounts?.expired ?? 0}, unavailable ${result.watchStatusCounts?.unavailable ?? 0} (research-only; not orders)`);
+    console.log(`[${stamp}] coverage ${result.covered}/${result.eligible} (${result.coveragePercent}%) | this batch ${result.analyzed} | sweep ${result.cycleCompleted ? "complete" : "in progress"} | registry ${result.universeInstruments} active instruments / ${result.universePages} pages | sweeps ${result.completedSweeps ?? "?"} | fresh ${result.freshChecked ?? "?"}/${result.eligible}, stale-checked ${result.staleChecked ?? "?"}, oldest ${result.oldestCheckedAgeSeconds ?? "?"}s | watching ${result.watchStatusCounts?.watching ?? 0}, review-ready ${result.watchStatusCounts?.ready ?? 0}, stale ${result.watchStatusCounts?.stale ?? 0}, expired ${result.watchStatusCounts?.expired ?? 0}, unavailable ${result.watchStatusCounts?.unavailable ?? 0} (research-only; not orders)`);
   } catch (error) {
     console.error(`[${new Date().toISOString()}] scan failed: ${error instanceof Error ? error.message : String(error)}`);
   }
