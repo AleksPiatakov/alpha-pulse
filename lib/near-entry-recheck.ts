@@ -21,20 +21,20 @@ export function selectNearEntryRechecks(
   return [...cached].filter(([symbol, record]) => {
     const p = record.plan;
     const reasons = p.qualityGate?.reasons;
+    const distance = p.limitEntry24h?.distanceAtr;
     return available.has(symbol) && !alreadyInSweep.has(symbol) &&
       p.status === "ACTIVE" && p.qualityGate?.passed === false &&
       Array.isArray(reasons) && reasons.length === 1 &&
       reasons[0] === DISTANCE_REASON &&
       p.score >= 90 && p.readiness?.met === p.readiness?.total &&
       p.readiness?.total > 0 &&
-      Number.isFinite(p.limitEntry24h?.distanceAtr) &&
-      p.limitEntry24h!.distanceAtr > 0.75 &&
-      p.limitEntry24h!.distanceAtr <= 1.5 &&
+      typeof distance === "number" && Number.isFinite(distance) &&
+      distance > 0.75 && distance <= 1.5 &&
       Number.isSafeInteger(record.checkedAt) &&
       now - record.checkedAt >= NEAR_ENTRY_RECHECK_INTERVAL_MS &&
       now - record.checkedAt <= 45 * 60_000;
   }).sort((a,b) =>
-    a[1].plan.limitEntry24h!.distanceAtr - b[1].plan.limitEntry24h!.distanceAtr ||
+    (a[1].plan.limitEntry24h?.distanceAtr ?? Infinity) - (b[1].plan.limitEntry24h?.distanceAtr ?? Infinity) ||
     a[1].checkedAt - b[1].checkedAt ||
     a[0].localeCompare(b[0])
   ).slice(0,maximum).map(([symbol]) => symbol);
