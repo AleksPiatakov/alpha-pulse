@@ -17,8 +17,21 @@ test("selection diagnostics explain each strict filtering stage",()=>{
  ]);
  assert.deepEqual(r,{availablePlans:6,technicalActive:5,qualityPassed:4,
   structuralEntryAndTarget:3,historicallyReachable24h:2,eligible24h:1,
-  hiddenByFreshness:1});
+  hiddenByFreshness:1,activeQualityFailures:1,qualityFailures:[{reason:"Фільтр якості не повернув причини.",count:1}]});
 });
 test("empty sample stays empty rather than fabricating candidate",()=>{
  assert.equal(summarize24hSelection([]).eligible24h,0);
+});
+
+test("reports independent reasons for each rejected ACTIVE candidate",()=>{
+ const result=summarize24hSelection([
+  plan({qualityGate:{passed:false,reasons:["Недостатня оцінка сигналу.","Низька готовність."]}}),
+  plan({qualityGate:{passed:false,reasons:["Недостатня оцінка сигналу."]}}),
+  plan({status:"REVIEW",qualityGate:{passed:false,reasons:["Не враховувати REVIEW."]}}),
+ ]);
+ assert.equal(result.activeQualityFailures,2);
+ assert.deepEqual(result.qualityFailures,[
+  {reason:"Недостатня оцінка сигналу.",count:2},
+  {reason:"Низька готовність.",count:1},
+ ]);
 });
