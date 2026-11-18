@@ -29,4 +29,4 @@ Find up to **ten** carefully researched, potential **pending Limit** entries wit
 5. Continue the distinct EMA50, CHoCH, Flip Zone and Volume Profile research experiments **only if** they improve objective out-of-sample entry/exit quality.
 
 ## How to verify
-Run from local checkout: `git pull --ff-only origin main`; `npm run dev`; open `http://localhost:3000`. Check the separate `Limit-входи · горизонт 24 години` section. Note `recommended24hComplete` currently reports completed universe visitation, not freshness of every symbol simultaneously; every candidate is individually screened for freshness by scanner.
+Run from local checkout: `git pull --ff-only origin main`; `npm run dev`; open `http://localhost:3000`. Check the separate `Limit-входи · горизонт 24 години` section. `recommended24hComplete` now requires the full eligible universe to have been visited within the four-minute confirmation freshness window. With the current 24-instrument rotating batch, this may often remain false until a high-throughput screening stage is implemented. Do not claim the provisional shortlist is a market-wide comparison.
