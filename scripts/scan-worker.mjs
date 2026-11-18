@@ -11,10 +11,17 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function tick() {
   try {
     const response = await fetch(new URL("/api/scan/worker", base), { signal: AbortSignal.timeout(120_000), cache: "no-store" });
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.toLowerCase().includes("application/json")) {
+      throw new Error(`Scanner API HTTP ${response.status}: expected JSON, received ${contentType || "unknown content type"}. Check that Alpha Pulse is running at ${base}.`);
+    }
     const result = await response.json();
-    if (!response.ok || !result.success) throw new Error(result.error ?? `HTTP ${response.status}`);
+    if (!response.ok || result?.success !== true) throw new Error(result?.error ?? `Scanner API HTTP ${response.status}`);
+    if (![result.covered, result.eligible, result.analyzed, result.universeInstruments, result.universePages].every(Number.isFinite) || result.eligible <= 0 || result.covered > result.eligible) {
+      throw new Error("Scanner API returned inconsistent market coverage; not reporting a successful sweep.");
+    }
     const stamp = new Date().toISOString();
-    console.log(`[${stamp}] coverage ${result.covered}/${result.eligible} (${result.coveragePercent}%) | this batch ${result.analyzed} | sweep ${result.cycleCompleted ? "complete" : "in progress"} | registry ${result.universeInstruments} active instruments / ${result.universePages} pages | monitoring ${result.watchStatusCounts?.watching??0}, review-ready ${result.watchStatusCounts?.ready??0}, stale ${result.watchStatusCounts?.stale??0}`);
+    console.log(`[${stamp}] coverage ${result.covered}/${result.eligible} (${result.coveragePercent}%) | this batch ${result.analyzed} | sweep ${result.cycleCompleted ? "complete" : "in progress"} | registry ${result.universeInstruments} active instruments / ${result.universePages} pages | sweeps ${result.completedSweeps ?? "?"} | watching ${result.watchStatusCounts?.watching ?? 0}, review-ready ${result.watchStatusCounts?.ready ?? 0}, stale ${result.watchStatusCounts?.stale ?? 0}, expired ${result.watchStatusCounts?.expired ?? 0}, unavailable ${result.watchStatusCounts?.unavailable ?? 0} (research-only; not orders)`);
   } catch (error) {
     console.error(`[${new Date().toISOString()}] scan failed: ${error instanceof Error ? error.message : String(error)}`);
   }
