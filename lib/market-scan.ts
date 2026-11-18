@@ -97,6 +97,7 @@ async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null, 
     qualityGate: { passed: gate.accepted, reasons: gate.reasons, policy: "intraday-quality-v1",
       stopAtr: Number.isFinite(gate.stopAtr) ? Number(gate.stopAtr.toFixed(3)) : null,
       rewardRisk: Number.isFinite(gate.rewardRisk) ? Number(gate.rewardRisk.toFixed(3)) : null },
+    structure: { confirmedEntry: levels.confirmedEntry, confirmedTarget: levels.confirmedTarget },
     limitEntry24h: reach,
     currentPrice: roundToTick(price, rules.tickSize),
     entryPrice,
@@ -223,8 +224,8 @@ async function doScan(): Promise<ScanResult> {
     p.status === "ACTIVE" && p.qualityGate?.passed === true &&
     p.limitEntry24h?.status === "HISTORICALLY_REACHABLE" &&
     p.limitEntry24h.sampleWindows >= 60 &&
-    // An objectively identified swing entry and daily TP were required.
-    p.reasons.some(r => r.includes("TP обмежено денним swing-рівнем"))
+    // Require explicit structural entry AND target, not prose-string inference.
+    p.structure?.confirmedEntry === true && p.structure?.confirmedTarget === true
   ).sort((a,b) => b.score - a.score || b.riskReward - a.riskReward ||
     a.symbol.localeCompare(b.symbol)).slice(0,10);
   if (visited.size === eligible.length) completedSweeps++;
