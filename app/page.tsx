@@ -110,14 +110,18 @@ export default function MarketScanner() {
         </div>
         <p className="mb-3 text-xs leading-relaxed text-slate-400">Лише технічно ACTIVE, з дослідним фільтром якості, структурною денною ціллю та історично досяжним відкладеним рівнем. Минулі торкання не є прогнозованою ймовірністю виконання заявки. Кожен план оновлюється окремо й може втратити актуальність до завершення обходу.</p>
         {recommended24h.length ? <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-          {recommended24h.map((plan,index)=><button type="button" key={plan.id} onClick={()=>openPlan(plan)}
-            className="rounded-lg border border-slate-700 bg-slate-950/60 p-3 text-left hover:border-cyan-500">
+          {recommended24h.map((plan,index)=><div key={plan.id}
+            className="rounded-lg border border-slate-700 bg-slate-950/60 p-3 text-left">
             <div className="flex justify-between gap-2"><span className="text-sm font-semibold">TOP {index+1} · {plan.symbol} · {plan.direction}</span>
               <span className="text-xs text-cyan-300">{plan.score}/100</span></div>
             <p className="mt-2 text-xs text-slate-300">Limit {price(plan.entryPrice)} · SL {price(plan.stopLoss)} · TP {price(plan.takeProfit2)}</p>
             <p className="mt-1 text-[11px] text-slate-400">24h історичні торкання: {plan.limitEntry24h?.historicalTouchRate == null ? "—" : (100*plan.limitEntry24h.historicalTouchRate).toFixed(1)+"%"} · {plan.limitEntry24h?.sampleWindows??0} перекривних вікон</p>
             <p className="mt-1 text-[11px] text-slate-500">Горизонт Entry: {plan.observation?.observedAt ? new Date(plan.observation.observedAt).toLocaleString("uk-UA") : "—"} → {plan.observation?.observedAt ? new Date(plan.observation.observedAt+86_400_000).toLocaleString("uk-UA") : "—"} · це не термін дії GTC-ордера</p>
-          </button>)}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button type="button" onClick={()=>openPlan(plan)} className="rounded-md bg-emerald-400 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-300">Переглянути план</button>
+              {bybitChartUrl(plan.symbol) && <a href={bybitChartUrl(plan.symbol)!} target="_blank" rel="noopener noreferrer" className="rounded-md border border-cyan-700 px-3 py-2 text-xs font-semibold text-cyan-200 hover:border-cyan-400">↗ Графік Bybit</a>}
+            </div>
+          </div>)}
         </div> : <p className="text-sm text-slate-400">Поки немає кандидатів, що пройшли всі попередні умови. Це не означає, що ринок уже повністю перевірено.</p>}
       </section>
       <p className="mb-3 text-xs text-amber-200">«Підтверджено» означає технічну готовність MTF, не доказ прибутковості. Дослідний фільтр якості показано окремо. До завершення обходу це не рейтинг усього ринку.</p>
@@ -137,9 +141,8 @@ export default function MarketScanner() {
           <span className="text-xs tabular-nums text-slate-500">{group.items.length}</span>
         </div>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {group.items.map((plan, index) => {
+        {group.items.map((plan) => {
           const isLong = plan.direction === "LONG";
-          const qualityReady = plan.status === "ACTIVE" && plan.qualityGate?.passed === true;
           return <article key={plan.id} className="rounded-xl border border-slate-700 bg-slate-900 p-4 shadow-lg">
             <div className="mb-3 flex items-start justify-between gap-3">
               <div className="flex items-center gap-2">
