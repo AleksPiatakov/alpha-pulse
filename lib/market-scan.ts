@@ -229,7 +229,7 @@ async function doScan(): Promise<ScanResult> {
     a.symbol.localeCompare(b.symbol)).slice(0,10);
   if (visited.size === eligible.length) completedSweeps++;
   return { plans, recommended24h, recommended24hComplete: visited.size === eligible.length,
-    entryHorizonHours: LIMIT_ENTRY_HORIZON_MS / 3_600_000, scanned: data.result.list.length, eligible: eligible.length,
+    entryHorizonHours: 24 as const, scanned: data.result.list.length, eligible: eligible.length,
     analyzed: batch.length, covered: visited.size, category: "linear",
     universePages: registry.pages, universeInstruments: registry.eligibleSymbols.size,
     unsupportedInstruments: registry.rejectedUnsupported + registry.rejectedNonTrading,
