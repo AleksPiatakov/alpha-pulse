@@ -28,13 +28,16 @@ function AnalysisView(){
   const [aiLoading,setAiLoading]=useState(false);
   const [detailError,setDetailError]=useState("");
   useEffect(()=>{
-    try{
-      const raw=localStorage.getItem("alpha-pulse-plan-v1");
-      if(raw){
-        const parsed=JSON.parse(raw) as TradePlan;
-        if(parsed.symbol===symbol)setSnapshot(parsed);
-      }
-    }catch{/* invalid stored snapshot is ignored */}
+    const initial=window.setTimeout(()=>{
+      try{
+        const raw=localStorage.getItem("alpha-pulse-plan-v1");
+        if(raw){
+          const parsed=JSON.parse(raw) as TradePlan;
+          if(parsed.symbol===symbol)setSnapshot(parsed);
+        }
+      }catch{/* invalid stored snapshot is ignored */}
+    },0);
+    return ()=>window.clearTimeout(initial);
   },[symbol]);
 
   const refresh=useCallback(async()=>{
