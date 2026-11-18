@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Dedicated local polling process for the Alpha Pulse scanner.
 // Keep the Next.js server running separately; no exchange API secrets are used here.
-// This worker does not place orders and does not persist signal history.
+// This worker never places orders. Scenario tracking lives in the running Next.js process and resets on its restart.
 const base = process.env.ALPHA_PULSE_SCAN_URL ?? "http://127.0.0.1:3000";
 const interval = Math.max(20_000, Number(process.env.ALPHA_PULSE_SCAN_INTERVAL_MS) || 30_000);
 let stopping = false;
@@ -14,7 +14,7 @@ async function tick() {
     const result = await response.json();
     if (!response.ok || !result.success) throw new Error(result.error ?? `HTTP ${response.status}`);
     const stamp = new Date().toISOString();
-    console.log(`[${stamp}] coverage ${result.covered}/${result.eligible} (${result.coveragePercent}%) | this batch ${result.analyzed} | sweep ${result.cycleCompleted ? "complete" : "in progress"} | registry ${result.universeInstruments} active instruments / ${result.universePages} pages`);
+    console.log(`[${stamp}] coverage ${result.covered}/${result.eligible} (${result.coveragePercent}%) | this batch ${result.analyzed} | sweep ${result.cycleCompleted ? "complete" : "in progress"} | registry ${result.universeInstruments} active instruments / ${result.universePages} pages | monitoring ${result.watchStatusCounts?.watching??0}, review-ready ${result.watchStatusCounts?.ready??0}, stale ${result.watchStatusCounts?.stale??0}`);
   } catch (error) {
     console.error(`[${new Date().toISOString()}] scan failed: ${error instanceof Error ? error.message : String(error)}`);
   }
