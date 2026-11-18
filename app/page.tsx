@@ -112,7 +112,7 @@ export default function MarketScanner() {
         {recommended24h.length ? <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
           {recommended24h.map((plan,index)=><div key={plan.id}
             className="rounded-lg border border-slate-700 bg-slate-950/60 p-3 text-left">
-            <div className="flex justify-between gap-2"><span className="text-sm font-semibold">TOP {index+1} · {plan.symbol} · {plan.direction}</span>
+            <div className="flex justify-between gap-2"><span className="text-sm font-semibold">{recommendationsComplete ? `TOP ${index+1}` : `Кандидат ${index+1}`} · {plan.symbol} · {plan.direction}</span>
               <span className="text-xs text-cyan-300">{plan.score}/100</span></div>
             <p className="mt-2 text-xs text-slate-300">Limit {price(plan.entryPrice)} · SL {price(plan.stopLoss)} · TP {price(plan.takeProfit2)}</p>
             <p className="mt-1 text-[11px] text-slate-400">24h історичні торкання: {plan.limitEntry24h?.historicalTouchRate == null ? "—" : (100*plan.limitEntry24h.historicalTouchRate).toFixed(1)+"%"} · {plan.limitEntry24h?.sampleWindows??0} перекривних вікон</p>
