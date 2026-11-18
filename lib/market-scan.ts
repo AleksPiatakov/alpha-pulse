@@ -5,6 +5,7 @@ import { closedMarketFeatures } from "./closed-market-features.ts";
 import { sealMarketInputSnapshot, type MarketInputSnapshot, type SnapshotTimeframes } from "./market-input-snapshot.ts";
 import { compareFrozenMarketPlan } from "./snapshot-parity.ts";
 import { assessLimitEntry24h } from "./limit-entry-24h.ts";
+import { select24hLimitRecommendations } from "./24h-recommendations.ts";
 import { closedBarAt, observationMetadata, type MarketTimeframe } from "./market-observation-clock.ts";
 import { fetchLinearUniverse, matchUniverseTickers, type UniverseResult, type InstrumentMeta } from "./bybit-universe.ts";
 import { parseExecutionRules } from "./bybit-execution-rules.ts";
@@ -220,14 +221,7 @@ async function doScan(): Promise<ScanResult> {
     .slice(0, MAX_VISIBLE);
   // Keep a separate, strictly gated Top-10 shortlist. Until the current
   // sweep visits all symbols it is ONLY provisional, never a market-wide Top 10.
-  const recommended24h = plans.filter(p =>
-    p.status === "ACTIVE" && p.qualityGate?.passed === true &&
-    p.limitEntry24h?.status === "HISTORICALLY_REACHABLE" &&
-    p.limitEntry24h.sampleWindows >= 60 &&
-    // Require explicit structural entry AND target, not prose-string inference.
-    p.structure?.confirmedEntry === true && p.structure?.confirmedTarget === true
-  ).sort((a,b) => b.score - a.score || b.riskReward - a.riskReward ||
-    a.symbol.localeCompare(b.symbol)).slice(0,10);
+  const recommended24h = select24hLimitRecommendations(plans,10);
   if (visited.size === eligible.length) completedSweeps++;
   return { plans, recommended24h, recommended24hComplete: visited.size === eligible.length,
     entryHorizonHours: 24 as const, scanned: data.result.list.length, eligible: eligible.length,
