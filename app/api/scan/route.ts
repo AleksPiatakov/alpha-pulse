@@ -4,7 +4,7 @@ import { scanTechnicalPlans } from "@/lib/market-scan";
 
 export async function GET() {
   try {
-    const { plans, scanned, eligible, analyzed, covered, category, rejectionCounts,
+    const { plans, recommended24h, recommended24hComplete, entryHorizonHours, scanned, eligible, analyzed, covered, category, rejectionCounts,
       universePages, universeInstruments, unsupportedInstruments,
       coveragePercent, cycleCompleted } = await scanTechnicalPlans();
     const ai = await createAiExplanations(plans.slice(0, 6));
@@ -17,7 +17,8 @@ export async function GET() {
       success: true, scanned, eligible, analyzed, covered, category, rejectionCounts,
       universePages, universeInstruments, unsupportedInstruments,
       coveragePercent, cycleCompleted,
-      plans: enrichedPlans, aiStatus: ai.status,
+      plans: enrichedPlans, recommended24h, recommended24hComplete, entryHorizonHours,
+      aiStatus: ai.status,
       generatedAt: new Date().toISOString(),
     });
   } catch (caught) {
