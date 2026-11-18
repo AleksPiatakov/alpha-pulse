@@ -119,7 +119,7 @@ export default function MarketScanner() {
           <span>Підтверджені Entry/TP: <strong className="text-slate-200">{selectionDiagnostics.structuralEntryAndTarget}</strong></span>
           <span>24h Limit: <strong className="text-cyan-200">{selectionDiagnostics.eligible24h}</strong></span>
         </div>}
-        {recommended24h.length ? <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3"
+        {recommended24h.length ? <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
           {recommended24h.map((plan,index)=><div key={plan.id}
             className="rounded-lg border border-slate-700 bg-slate-950/60 p-3 text-left">
             <div className="flex justify-between gap-2"><span className="text-sm font-semibold">{recommendationsComplete ? `TOP ${index+1}` : `Кандидат ${index+1}`} · {plan.symbol} · {plan.direction}</span>
