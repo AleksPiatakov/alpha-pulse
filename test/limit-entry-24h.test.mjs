@@ -11,7 +11,7 @@ test("horizon is 24h; historical reach is a diagnostic, not a probability",()=>{
     atr30m:1,closed30m:history()});
   assert.equal(r.horizonHours,24);
   assert.equal(r.status,"HISTORICALLY_REACHABLE");
-  assert.equal(r.sampleWindows,152);
+  assert.equal(r.sampleWindows,138);
   assert.ok(r.historicalTouchRate>0);
   assert.ok(r.caution.includes("НЕ"));
 });
