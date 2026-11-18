@@ -136,6 +136,7 @@ async function currentUniverse(): Promise<UniverseResult> {
 const MAX_VISIBLE = 100;
 const seenPlans = new Map<string, { plan: TradePlan; checkedAt: number }>();
 const visited = new Set<string>();
+const visitedAt = new Map<string,number>();
 let scanCursor = 0;
 let completedSweeps = 0;
 let latestScan: { until: number; value: ScanResult } | undefined;
@@ -173,9 +174,9 @@ async function doScan(): Promise<ScanResult> {
   const universe = new Set(eligible.map((ticker) => ticker.symbol));
   const metadataBySymbol = new Map(registry.instruments.map((item) => [item.symbol, item]));
   for (const symbol of seenPlans.keys()) if (!universe.has(symbol)) seenPlans.delete(symbol);
-  for (const symbol of visited) if (!universe.has(symbol)) visited.delete(symbol);
+  for (const symbol of visited) if (!universe.has(symbol)) { visited.delete(symbol); visitedAt.delete(symbol); }
   if (scanCursor >= eligible.length) scanCursor = 0;
-  if (scanCursor === 0) visited.clear(); // Coverage always means this sweep, not all historical visits.
+  if (scanCursor === 0) { visited.clear(); visitedAt.clear(); } // Coverage always means this sweep, not all historical visits.
   const batch = eligible.slice(scanCursor, scanCursor + CYCLE_BATCH);
   scanCursor = (scanCursor + batch.length) % Math.max(eligible.length, 1);
   const rejectionCounts: Record<FilterReason, number> = {
@@ -201,6 +202,7 @@ async function doScan(): Promise<ScanResult> {
   results.forEach((result, i) => {
     const symbol = batch[i].symbol;
     visited.add(symbol);
+    visitedAt.set(symbol,now);
     if (result.status === "fulfilled" && result.value) {
       seenPlans.set(symbol, { plan: result.value, checkedAt: now });
     } else {
@@ -223,7 +225,9 @@ async function doScan(): Promise<ScanResult> {
   // sweep visits all symbols it is ONLY provisional, never a market-wide Top 10.
   const recommended24h = select24hLimitRecommendations(plans,10);
   if (visited.size === eligible.length) completedSweeps++;
-  return { plans, recommended24h, recommended24hComplete: visited.size === eligible.length,
+  const allSymbolsRecentlyChecked = visited.size === eligible.length &&
+    eligible.every(t => now - (visitedAt.get(t.symbol) ?? 0) <= CONFIRMATION_FRESHNESS);
+  return { plans, recommended24h, recommended24hComplete: allSymbolsRecentlyChecked,
     entryHorizonHours: 24 as const, scanned: data.result.list.length, eligible: eligible.length,
     analyzed: batch.length, covered: visited.size, category: "linear",
     universePages: registry.pages, universeInstruments: registry.eligibleSymbols.size,
