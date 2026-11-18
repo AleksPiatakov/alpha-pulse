@@ -6,6 +6,7 @@ import { sealMarketInputSnapshot, type MarketInputSnapshot, type SnapshotTimefra
 import { compareFrozenMarketPlan } from "./snapshot-parity.ts";
 import { assessLimitEntry24h } from "./limit-entry-24h.ts";
 import { select24hLimitRecommendations } from "./24h-recommendations.ts";
+import { orderMarketScan, selectSweepBatch } from "./market-scan-scheduler.ts";
 import { closedBarAt, observationMetadata, type MarketTimeframe } from "./market-observation-clock.ts";
 import { fetchLinearUniverse, matchUniverseTickers, type UniverseResult, type InstrumentMeta } from "./bybit-universe.ts";
 import { parseExecutionRules } from "./bybit-execution-rules.ts";
@@ -27,7 +28,8 @@ function nearestConfirmedLevel(candles: Candle[], direction: PlanDirection, pric
 
 async function candlesFor(symbol: string, interval: Interval, observedAt: number) {
   const limit = 200;
-  const response = await fetch(`${DEMO_BYBIT_URL}/v5/market/kline?category=linear&symbol=${symbol}&interval=${interval}&limit=${limit}`, { cache: "no-store" });
+  const response = await fetch(`${DEMO_BYBIT_URL}/v5/market/kline?category=linear&symbol=${symbol}&interval=${interval}&limit=${limit}`, { cache: "no-store", signal: AbortSignal.timeout(12000) });
+  if (!response.ok) throw new Error(`Bybit Kline ${symbol} ${interval}: HTTP ${response.status}`);
   const data = await response.json() as { retCode: number; result?: { list?: Candle[] } };
   if (data.retCode !== 0 || !data.result?.list) return null;
   const closed = [...data.result.list].reverse().filter((c) =>
@@ -123,7 +125,8 @@ async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null, 
   };
 }
 
-const CYCLE_BATCH = 24; // API request batch, NOT a limit on the market universe
+const CYCLE_BATCH = 64; // Larger deep-analysis batch, NOT a market-universe cap.
+const CYCLE_CONCURRENCY = 8; // Bounded request parallelism to protect exchange limits.
 const UNIVERSE_TTL = 10 * 60_000;
 let universeCache: { until: number; registry: UniverseResult } | undefined;
 async function currentUniverse(): Promise<UniverseResult> {
@@ -138,10 +141,11 @@ const seenPlans = new Map<string, { plan: TradePlan; checkedAt: number }>();
 const visited = new Set<string>();
 const visitedAt = new Map<string,number>();
 let scanCursor = 0;
+let pinnedSweepOrder: string[] = [];
 let completedSweeps = 0;
 let latestScan: { until: number; value: ScanResult } | undefined;
 let activeScan: Promise<ScanResult> | undefined;
-const SCAN_INTERVAL = 20_000;
+const SCAN_INTERVAL = 8_000;
 const PLAN_TTL = 45 * 60_000;
 const CONFIRMATION_FRESHNESS = 4 * 60_000;
 export type ScanResult = {
@@ -153,6 +157,9 @@ export type ScanResult = {
   eligible: number;
   analyzed: number;
   covered: number;
+  batchSize: number;
+  scanConcurrency: number;
+  deepScannedInSweep: number;
   category: "linear";
   universePages: number; universeInstruments: number; unsupportedInstruments: number;
   coveragePercent: number; cycleCompleted: boolean; completedSweeps: number;
@@ -175,10 +182,18 @@ async function doScan(): Promise<ScanResult> {
   const metadataBySymbol = new Map(registry.instruments.map((item) => [item.symbol, item]));
   for (const symbol of seenPlans.keys()) if (!universe.has(symbol)) seenPlans.delete(symbol);
   for (const symbol of visited) if (!universe.has(symbol)) { visited.delete(symbol); visitedAt.delete(symbol); }
-  if (scanCursor >= eligible.length) scanCursor = 0;
-  if (scanCursor === 0) { visited.clear(); visitedAt.clear(); } // Coverage always means this sweep, not all historical visits.
-  const batch = eligible.slice(scanCursor, scanCursor + CYCLE_BATCH);
-  scanCursor = (scanCursor + batch.length) % Math.max(eligible.length, 1);
+  // One inexpensive all-market ticker pass chooses priority. Every symbol still
+  // receives the expensive four-timeframe analysis during the sweep.
+  if (scanCursor === 0 || pinnedSweepOrder.length === 0) {
+    pinnedSweepOrder = orderMarketScan(eligible);
+    visited.clear();
+    visitedAt.clear();
+  }
+  const quotes = new Map(eligible.map(t => [t.symbol,t]));
+  const chosen = selectSweepBatch(pinnedSweepOrder,scanCursor,CYCLE_BATCH);
+  scanCursor = chosen.nextCursor;
+  const batch = chosen.symbols
+    .map(symbol => quotes.get(symbol)).filter((ticker): ticker is Ticker => ticker !== undefined);
   const rejectionCounts: Record<FilterReason, number> = {
     candles: 0, trend: 0, volume: 0, momentum: 0,
     distance: 0, prices: 0, daily_level: 0, reward_risk: 0, error: 0,
@@ -186,7 +201,7 @@ async function doScan(): Promise<ScanResult> {
   // Limit concurrency to avoid bursts of dozens of simultaneous Bybit requests.
   const results: PromiseSettledResult<TradePlan | null>[] = new Array(batch.length);
   let index = 0;
-  await Promise.all(Array.from({ length: Math.min(4, batch.length) }, async () => {
+  await Promise.all(Array.from({ length: Math.min(CYCLE_CONCURRENCY, batch.length) }, async () => {
     while (index < batch.length) {
       const current = index++;
       const ticker = batch[current];
@@ -213,23 +228,25 @@ async function doScan(): Promise<ScanResult> {
   for (const [symbol, record] of seenPlans) {
     if (now - record.checkedAt > PLAN_TTL) seenPlans.delete(symbol);
   }
-  const plans = [...seenPlans.values()].map((record) => {
+  const allPlans = [...seenPlans.values()].map((record) => {
     // A cached suggestion remains visible, but cannot retain "confirmed" after it becomes stale.
     if (now - record.checkedAt <= CONFIRMATION_FRESHNESS) return record.plan;
     return { ...record.plan, status: "REVIEW" as const,
       nextStep: "Сценарій потребує повторного аналізу перед Demo Limit." };
-  })
-    .sort((a, b) => (a.status === "ACTIVE" ? -1 : 1) - (b.status === "ACTIVE" ? -1 : 1) || b.score - a.score || b.riskReward - a.riskReward || a.symbol.localeCompare(b.symbol))
+  });
+  const plans = [...allPlans].sort((a, b) => (a.status === "ACTIVE" ? -1 : 1) - (b.status === "ACTIVE" ? -1 : 1) || b.score - a.score || b.riskReward - a.riskReward || a.symbol.localeCompare(b.symbol))
     .slice(0, MAX_VISIBLE);
   // Keep a separate, strictly gated Top-10 shortlist. Until the current
   // sweep visits all symbols it is ONLY provisional, never a market-wide Top 10.
-  const recommended24h = select24hLimitRecommendations(plans,10);
+  const recommended24h = select24hLimitRecommendations(allPlans,10);
   if (visited.size === eligible.length) completedSweeps++;
   const allSymbolsRecentlyChecked = visited.size === eligible.length &&
     eligible.every(t => now - (visitedAt.get(t.symbol) ?? 0) <= CONFIRMATION_FRESHNESS);
   return { plans, recommended24h, recommended24hComplete: allSymbolsRecentlyChecked,
     entryHorizonHours: 24 as const, scanned: data.result.list.length, eligible: eligible.length,
-    analyzed: batch.length, covered: visited.size, category: "linear",
+    analyzed: batch.length, covered: visited.size,
+    batchSize: CYCLE_BATCH, scanConcurrency: CYCLE_CONCURRENCY,
+    deepScannedInSweep: visited.size, category: "linear",
     universePages: registry.pages, universeInstruments: registry.eligibleSymbols.size,
     unsupportedInstruments: registry.rejectedUnsupported + registry.rejectedNonTrading,
     coveragePercent: Number((100 * visited.size / eligible.length).toFixed(1)),
