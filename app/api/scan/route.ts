@@ -4,7 +4,7 @@ import { scanTechnicalPlans } from "@/lib/market-scan";
 
 export async function GET(request: Request) {
   try {
-    const { plans, recommended24h, recommended24hComplete, entryHorizonHours, scanned, eligible, analyzed, covered, batchSize, scanConcurrency, deepScannedInSweep, category, rejectionCounts,
+    const { plans, recommended24h, recommended24hComplete, entryHorizonHours, scanned, eligible, analyzed, covered, batchSize, scanConcurrency, deepScannedInSweep, selectionDiagnostics, category, rejectionCounts,
       universePages, universeInstruments, unsupportedInstruments,
       coveragePercent, cycleCompleted } = await scanTechnicalPlans();
     // Fast default response: do not block each market scan behind a potentially
@@ -19,7 +19,7 @@ export async function GET(request: Request) {
         : plan
     );
     return NextResponse.json({
-      success: true, scanned, eligible, analyzed, covered, batchSize, scanConcurrency, deepScannedInSweep, category, rejectionCounts,
+      success: true, scanned, eligible, analyzed, covered, batchSize, scanConcurrency, deepScannedInSweep, selectionDiagnostics, category, rejectionCounts,
       universePages, universeInstruments, unsupportedInstruments,
       coveragePercent, cycleCompleted,
       plans: enrichedPlans, recommended24h, recommended24hComplete, entryHorizonHours,
