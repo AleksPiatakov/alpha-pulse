@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import {useCallback, useEffect, useState} from "react";
+import {Suspense, useCallback, useEffect, useState} from "react";
 import {useParams} from "next/navigation";
 import type {TradePlan} from "@/lib/trading";
 import {TradingChart} from "@/app/components/TradingChart";
@@ -215,4 +215,6 @@ function AnalysisView(){
     </>}
   </main>;
 }
-export default AnalysisView;
+export default function AnalysisPage(){
+  return <Suspense fallback={<main className="min-h-screen bg-slate-950 p-8 text-slate-300">Завантаження сторінки аналізу…</main>}><AnalysisView/></Suspense>;
+}
