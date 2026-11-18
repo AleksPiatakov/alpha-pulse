@@ -7,7 +7,7 @@ import type { TradePlan } from "@/lib/trading";
 import { comparePlanPriority, isAtEntryZone } from "@/lib/plan-ranking";
 
 type RejectionCounts = Record<"candles" | "trend" | "volume" | "momentum" | "distance" | "prices" | "daily_level" | "reward_risk" | "error", number>;
-type ScanResponse = { success: boolean; scanned?: number; eligible?: number; analyzed?: number; plans?: TradePlan[]; recommended24h?: TradePlan[]; recommended24hComplete?: boolean; entryHorizonHours?: number; covered?: number; category?: string; rejectionCounts?: RejectionCounts; generatedAt?: string; error?: string; universePages?: number; universeInstruments?: number; coveragePercent?: number; cycleCompleted?: boolean };
+type ScanResponse = { success: boolean; scanned?: number; eligible?: number; analyzed?: number; batchSize?: number; scanConcurrency?: number; plans?: TradePlan[]; recommended24h?: TradePlan[]; recommended24hComplete?: boolean; entryHorizonHours?: number; covered?: number; category?: string; rejectionCounts?: RejectionCounts; generatedAt?: string; error?: string; universePages?: number; universeInstruments?: number; coveragePercent?: number; cycleCompleted?: boolean };
 const rejectionLabels: Array<[keyof RejectionCounts, string]> = [
   ["candles", "Недостатньо свічок"], ["trend", "Немає узгодженого тренду"],
   ["volume", "Недостатній обсяг"], ["momentum", "Слабкий імпульс"],
@@ -29,7 +29,7 @@ export default function MarketScanner() {
   const [plans, setPlans] = useState<TradePlan[]>([]);
   const [recommended24h,setRecommended24h] = useState<TradePlan[]>([]);
   const [recommendationsComplete,setRecommendationsComplete] = useState(false);
-  const [counts, setCounts] = useState({ scanned: 0, eligible: 0, analyzed: 0, covered: 0 });
+  const [counts, setCounts] = useState({ scanned: 0, eligible: 0, analyzed: 0, covered: 0, batchSize: 0, scanConcurrency: 0 });
   const [updatedAt, setUpdatedAt] = useState<string>();
   const [marketCoverage, setMarketCoverage] = useState({ pages: 0, instruments: 0, percent: 0, complete: false });
   const [rejectionCounts, setRejectionCounts] = useState<RejectionCounts>();
@@ -45,7 +45,7 @@ export default function MarketScanner() {
       setPlans(data.plans ?? []);
       setRecommended24h(data.recommended24h ?? []);
       setRecommendationsComplete(data.recommended24hComplete === true);
-      setCounts({ scanned: data.scanned ?? 0, eligible: data.eligible ?? 0, analyzed: data.analyzed ?? 0, covered: data.covered ?? 0 });
+      setCounts({ scanned: data.scanned ?? 0, eligible: data.eligible ?? 0, analyzed: data.analyzed ?? 0, covered: data.covered ?? 0, batchSize: data.batchSize ?? 0, scanConcurrency: data.scanConcurrency ?? 0 });
       setUpdatedAt(data.generatedAt); setRejectionCounts(data.rejectionCounts); setError(undefined);
       setMarketCoverage({ pages: data.universePages ?? 0, instruments: data.universeInstruments ?? 0,
         percent: data.coveragePercent ?? 0, complete: data.cycleCompleted ?? false });
@@ -55,7 +55,7 @@ export default function MarketScanner() {
 
   useEffect(() => {
     const initial = window.setTimeout(() => void refresh(), 0);
-    const interval = window.setInterval(() => void refresh(), 30_000);
+    const interval = window.setInterval(() => void refresh(), 10_000);
     return () => { window.clearTimeout(initial); window.clearInterval(interval); };
   }, [refresh]);
 
@@ -98,6 +98,7 @@ export default function MarketScanner() {
           <span>Доступних <strong className="font-semibold text-slate-200">{counts.eligible}</strong></span>
           <span>Реєстр <strong className="font-semibold text-slate-200">{marketCoverage.instruments}</strong> · стор. {marketCoverage.pages}</span>
           <span>Обхід <strong className="font-semibold text-slate-200">{counts.covered}/{counts.eligible}</strong> ({marketCoverage.percent}%) {marketCoverage.complete ? "✓" : "…"}</span>
+          <span>Партія <strong className="font-semibold text-slate-200">{counts.analyzed}</strong> · потоків {counts.scanConcurrency}</span>
           <span>Кандидатів 24h <strong className="font-semibold text-emerald-300">{featuredCount}</strong></span>
           <span>Оновлено <strong className="font-semibold tabular-nums text-slate-200">{updatedAt ? new Date(updatedAt).toLocaleTimeString() : "—"}</strong></span>
           </div>
@@ -127,7 +128,7 @@ export default function MarketScanner() {
       <p className="mb-3 text-xs text-amber-200">«Підтверджено» означає технічну готовність MTF, не доказ прибутковості. Дослідний фільтр якості показано окремо. До завершення обходу це не рейтинг усього ринку.</p>
       {featuredCount === 0 && <section className="rounded-xl border border-slate-800 bg-slate-900/60 px-5 py-6 text-sm text-slate-300">
         <p className="font-semibold text-slate-100">Поки немає сценаріїв, що пройшли суворий 24h Limit-відбір.</p>
-        <p className="mt-1 text-slate-400">Непідтверджені результати доступні в розділі «Спостереження». Ринок продовжує скануватися.</p>
+        <p className="mt-1 text-slate-400">Непідтверджені результати доступні в розділі «Спостереження». Ринок продовжує скануватися; суворі пороги не знижуються заради заповнення TOP.</p>
         {rejectionCounts && <details className="mt-3 text-xs"><summary className="cursor-pointer text-slate-400">Чому пари не пройшли відбір</summary>
           <div className="mt-2 flex flex-wrap gap-x-5 gap-y-2">
             {rejectionLabels.filter(([key]) => rejectionCounts[key] > 0).map(([key, label]) =>
