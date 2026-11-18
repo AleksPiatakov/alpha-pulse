@@ -184,6 +184,7 @@ export type ScanResult = {
   category: "linear";
   universePages: number; universeInstruments: number; unsupportedInstruments: number;
   coveragePercent: number; cycleCompleted: boolean; completedSweeps: number;
+  freshChecked: number; staleChecked: number; oldestCheckedAgeSeconds: number | null;
   rejectionCounts: Record<FilterReason, number>;
 };
 
@@ -290,6 +291,15 @@ async function doScan(): Promise<ScanResult> {
   const recommended24h = select24hLimitRecommendations(allPlans,10);
   const selectionDiagnostics = summarize24hSelection(allPlans);
   if (visited.size === eligible.length) completedSweeps++;
+  // Sweep coverage is not the same as freshness: scanning hundreds of symbols
+  // can take longer than the strict confirmation window.
+  const checkedAges = eligible.map(t => visitedAt.get(t.symbol))
+    .filter((at): at is number => at !== undefined)
+    .map(at => Math.max(0, now - at));
+  const freshChecked = checkedAges.filter(age => age <= CONFIRMATION_FRESHNESS).length;
+  const staleChecked = checkedAges.length - freshChecked;
+  const oldestCheckedAgeSeconds = checkedAges.length
+    ? Math.round(Math.max(...checkedAges) / 1000) : null;
   const allSymbolsRecentlyChecked = visited.size === eligible.length &&
     failedInSweep.size === 0 &&
     eligible.every(t => now - (visitedAt.get(t.symbol) ?? 0) <= CONFIRMATION_FRESHNESS);
@@ -302,6 +312,7 @@ async function doScan(): Promise<ScanResult> {
     unsupportedInstruments: registry.rejectedUnsupported + registry.rejectedNonTrading,
     coveragePercent: Number((100 * visited.size / eligible.length).toFixed(1)),
     cycleCompleted: visited.size === eligible.length, completedSweeps,
+    freshChecked, staleChecked, oldestCheckedAgeSeconds,
     rejectionCounts };
 }
 
