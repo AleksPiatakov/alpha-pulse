@@ -6,7 +6,7 @@ import Link from "next/link";
 import type { TradePlan } from "@/lib/trading";
 import { comparePlanPriority, isAtEntryZone } from "@/lib/plan-ranking";
 
-type SelectionDiagnostics = {availablePlans:number; technicalActive:number; qualityPassed:number; structuralEntryAndTarget:number; historicallyReachable24h:number;eligible24h:number;hiddenByFreshness:number};
+type SelectionDiagnostics = {availablePlans:number; technicalActive:number; qualityPassed:number; structuralEntryAndTarget:number; historicallyReachable24h:number;eligible24h:number;hiddenByFreshness:number;activeQualityFailures:number;qualityFailures:Array<{reason:string;count:number}>};
 type RejectionCounts = Record<"candles" | "trend" | "volume" | "momentum" | "distance" | "prices" | "daily_level" | "reward_risk" | "error", number>;
 type ScanResponse = { success: boolean; scanned?: number; eligible?: number; analyzed?: number; batchSize?: number; scanConcurrency?: number; selectionDiagnostics?: SelectionDiagnostics; plans?: TradePlan[]; recommended24h?: TradePlan[]; recommended24hComplete?: boolean; entryHorizonHours?: number; covered?: number; category?: string; rejectionCounts?: RejectionCounts; generatedAt?: string; error?: string; universePages?: number; universeInstruments?: number; coveragePercent?: number; cycleCompleted?: boolean };
 const rejectionLabels: Array<[keyof RejectionCounts, string]> = [
@@ -119,6 +119,15 @@ export default function MarketScanner() {
           <span>Підтверджені Entry/TP: <strong className="text-slate-200">{selectionDiagnostics.structuralEntryAndTarget}</strong></span>
           <span>24h Limit: <strong className="text-cyan-200">{selectionDiagnostics.eligible24h}</strong></span>
         </div>}
+        {selectionDiagnostics && selectionDiagnostics.activeQualityFailures > 0 && <details className="mb-3 rounded-lg border border-slate-800 px-3 py-2 text-xs text-slate-300">
+          <summary className="cursor-pointer font-medium text-amber-200">
+            Чому {selectionDiagnostics.activeQualityFailures} ACTIVE-сценаріїв не пройшли фільтр якості
+          </summary>
+          <p className="mt-2 text-slate-400">Це причини з фактичного аналізу збережених планів. Одна пара може порушувати кілька правил. Це не статистика всього ринку.</p>
+          <div className="mt-2 space-y-1">
+            {selectionDiagnostics.qualityFailures.map(item=><p key={item.reason}>{item.reason} — <strong>{item.count}</strong></p>)}
+          </div>
+        </details>}
         {recommended24h.length ? <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
           {recommended24h.map((plan,index)=><div key={plan.id}
             className="rounded-lg border border-slate-700 bg-slate-950/60 p-3 text-left">
