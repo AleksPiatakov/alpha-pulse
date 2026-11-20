@@ -34,8 +34,9 @@ async function readState():Promise<Stored>{
     for(const [symbol,record] of Object.entries(raw.active)){
       const entry=record as unknown as Partial<SentAlert>&ReadyAlert;
       if(entry?.alert?.symbol===symbol){
-        active[symbol]={...entry,messageId:Number.isSafeInteger(entry.messageId)&&
+        active[symbol]={alert:entry.alert,messageId:Number.isSafeInteger(entry.messageId)&&
           (entry.messageId??0)>0?entry.messageId!:null,
+          chatId:typeof entry.chatId==="string"?entry.chatId:"",
           lastConfirmedAt:Number.isFinite(entry.lastConfirmedAt)?entry.lastConfirmedAt:entry.alert.verifiedAt,
           misses:Number.isInteger(entry.misses)&&entry.misses>=0?entry.misses:0};
       }else if(entry?.symbol===symbol){
