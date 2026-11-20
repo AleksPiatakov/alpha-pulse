@@ -17,7 +17,7 @@ const when=(timestamp:number)=>new Intl.DateTimeFormat("uk-UA",{
   hour:"2-digit",minute:"2-digit",timeZoneName:"short",
 }).format(timestamp);
 const bybit=(symbol:string)=>`https://www.bybit.com/trade/usdt/${symbol}`;
-const planSignature=(p:TradePlan)=>JSON.stringify([p.id,p.direction,p.entryPrice,p.stopLoss,p.takeProfit2,p.status,p.qualityGate?.passed,p.readiness?.met]);
+const planSignature=(p:TradePlan)=>JSON.stringify([p.direction,p.entryPrice,p.stopLoss,p.takeProfit2,p.status,p.qualityGate?.passed,p.readiness?.met,p.readiness?.total,p.qualityGate?.reasons]);
 
 function AnalysisView(){
   const params=useParams();
@@ -90,7 +90,7 @@ function AnalysisView(){
       try{
         const response=await fetch("/api/account",{cache:"no-store"});
         const data=await response.json() as {success?:boolean;balance?:number;availableBalance?:number|null;activeCount?:number;error?:string};
-        if(!response.ok||!data.success||!Number.isFinite(data.balance)||!Number.isFinite(data.availableBalance)||!(data.balance!>0)||!(data.availableBalance!>0)||!Number.isInteger(data.activeCount))
+        if(!response.ok||!data.success||!Number.isFinite(data.balance)||!typeof data.availableBalance==="number"&&Number.isFinite(data.availableBalance)||!(data.balance!>0)||!(data.availableBalance!>0)||!Number.isInteger(data.activeCount))
           throw Error(data.error||"Немає підтверджених даних Demo-рахунку.");
         if(mounted){setAccount({balance:data.balance!,availableBalance:data.availableBalance!,activeCount:data.activeCount!});setAccountError("");}
       }catch(e){if(mounted){setAccount(null);setAccountError(e instanceof Error?e.message:"Demo API недоступний");}}
@@ -206,20 +206,28 @@ function AnalysisView(){
         <p className="mt-2 text-xs text-slate-500">Заявка тільки на Demo після натискання. Сервер незалежно перевіряє ціну, крок кількості, маржу та ризик. Реальний рахунок заблокований.</p>
       </aside>
       </div>
-      <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4"><h2 className="font-semibold">Параметри угоди</h2><p className="mt-2 text-sm">Поточна ціна: {number(plan.currentPrice)}</p><p className="mt-2 text-sm">Зона Entry: {number(plan.entryLow)}–{number(plan.entryHigh)}</p><p className="mt-2 text-sm">R:R — 1:{plan.riskReward.toFixed(2)}</p></section>
+      <div className="mt-3 grid items-start gap-3 md:grid-cols-2 xl:grid-cols-4">
         <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-          <h2 className="text-base font-semibold">Умови входу · {conditions.filter(c=>c.ok).length}/{conditions.length}</h2>
-          <p className="mt-2 text-sm leading-relaxed text-slate-400">
-            {ready?"Усі поточні дослідницькі умови виконано. Перед ручним рішенням перевір ціну, ризик і термін придатності плану.":
-             "Це умовний сценарій. Числа Entry/SL/TP — попередня гіпотеза, а не дозвіл на Limit-заявку."}
-          </p>
-          <div className="mt-4 space-y-2">
-            {conditions.map(c=><div key={c.label} className="flex items-center justify-between border-b border-slate-800/60 py-2 text-sm">
-              <span>{c.label}</span><span className={c.ok?"text-emerald-300":"text-amber-300"}>{c.ok?"Підтверджено":"Очікується"}</span>
+          <h2 className="font-semibold">Параметри угоди</h2>
+          <dl className="mt-3 space-y-2 text-xs text-slate-300">
+            <div className="flex justify-between gap-2"><dt>Поточна ціна</dt><dd>{number(plan.currentPrice)}</dd></div>
+            <div className="flex justify-between gap-2"><dt>Зона входу</dt><dd>{number(plan.entryLow)}–{number(plan.entryHigh)}</dd></div>
+            <div className="flex justify-between gap-2"><dt>R:R</dt><dd>1:{plan.riskReward.toFixed(2)}</dd></div>
+            <div className="flex justify-between gap-2"><dt>Відстань до Entry</dt><dd>{plan.limitEntry24h?.distanceAtr?.toFixed(2)??"—"} ATR</dd></div>
+            <div className="flex justify-between gap-2"><dt>Stop Loss</dt><dd>{plan.qualityGate?.stopAtr?.toFixed(2)??"—"} ATR</dd></div>
+            <div className="flex justify-between gap-2"><dt>Ризик Demo</dt><dd>{sizing?money(sizing.actualRisk)+" USDT":"—"}</dd></div>
+          </dl>
+        </section>
+        <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+          <h2 className="text-base font-semibold">Умови входу · {plan.readiness?.met??"—"}/{plan.readiness?.total??8}</h2>
+          <p className="mt-1 text-xs text-slate-400">Технічні критерії {conditions.filter(c=>c.ok).length}/{conditions.length}</p>
+
+          <div className="mt-3 space-y-2">
+            {conditions.map(c=><div key={c.label} className="flex items-start gap-2 border-b border-slate-800/50 pb-1 text-xs">
+              <span className={c.ok?"text-emerald-300":"text-amber-300"}>{c.ok?"✓":"○"}</span><span>{c.label}</span>
             </div>)}
           </div>
-          <p className="mt-4 text-sm text-cyan-200"><strong>Наступна дія:</strong> {plan.nextStep}</p>
+          <p className="mt-3 text-xs text-cyan-200"><strong>Наступна дія:</strong> {plan.nextStep}</p>
           <details className="mt-4 border-t border-slate-800 pt-3 text-sm">
             <summary className="cursor-pointer font-semibold">Всі технічні факти та незавершені умови</summary>
             <ul className="mt-3 list-disc space-y-2 pl-5 text-slate-300">
