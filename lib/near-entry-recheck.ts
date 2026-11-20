@@ -26,8 +26,10 @@ export function selectNearEntryRechecks(
       p.status === "ACTIVE" && p.qualityGate?.passed === false &&
       Array.isArray(reasons) && reasons.length === 1 &&
       reasons[0] === DISTANCE_REASON &&
-      p.score >= 90 && p.readiness?.met === p.readiness?.total &&
-      p.readiness?.total > 0 &&
+      p.score >= 90 &&
+      p.readiness !== undefined &&
+      p.readiness.total > 0 &&
+      p.readiness.met === p.readiness.total &&
       typeof distance === "number" && Number.isFinite(distance) &&
       distance > 0.75 && distance <= 1.5 &&
       Number.isSafeInteger(record.checkedAt) &&
