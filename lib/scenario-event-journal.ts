@@ -2,7 +2,7 @@
  * Local, research-only, durable scenario transition journal.
  * No API keys, no orders, no automatic trading. Server Node filesystem only.
  */
-import {appendFile, mkdir, readFile} from "node:fs/promises";
+import {appendFile, mkdir, readFile, stat, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import type {TradePlan} from "./trading.ts";
 import {select24hLimitRecommendations} from "./24h-recommendations.ts";
@@ -80,10 +80,11 @@ export async function recordScenarioTransitions(
   await mkdir(folder,{recursive:true,mode:0o700});
   // Cap the journal size before growth becomes unbounded on always-on Macs.
   try{
-    const current=await readFile(file,"utf8");
-    if(Buffer.byteLength(current,"utf8")>MAX_BYTES){
+    const info=await stat(file);
+    if(info.size>MAX_BYTES){
+      const current=await readFile(file,"utf8");
       const keep=current.split("\n").filter(Boolean).slice(-3000).join("\n")+"\n";
-      await import("node:fs/promises").then(fs=>fs.writeFile(file,keep,{mode:0o600}));
+      await writeFile(file,keep,{mode:0o600});
     }
   }catch(err){if((err as NodeJS.ErrnoException).code!=="ENOENT")throw err;}
   await appendFile(file,events.map(x=>JSON.stringify(x)).join("\n")+"\n",{mode:0o600});
