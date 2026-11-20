@@ -9,6 +9,7 @@ import { comparePlanPriority } from "@/lib/plan-ranking";
 type SelectionDiagnostics = {availablePlans:number; technicalActive:number; qualityPassed:number; structuralEntryAndTarget:number; historicallyReachable24h:number;eligible24h:number;hiddenByFreshness:number;activeQualityFailures:number;qualityFailures:Array<{reason:string;count:number}>;activeExamples:Array<{symbol:string;score:number;readiness:string;rr:number;distanceAtr:number|null;stopAtr:number|null;reasons:string[]}>};
 type WatchedScenario = {symbol:string;direction:"LONG"|"SHORT";state:"WATCHING"|"READY_FOR_REVIEW"|"STALE"|"EXPIRED"|"NO_CURRENT_PLAN";firstSeenAt:number;lastCheckedAt:number;validUntil:number;transitions:number;entry:number;stop:number;target:number;rr:number;score:number;confirmedConditions:string[];pendingConditions:string[];note:string;hasFreshPlan:boolean;orderAuthorized:false};
 type WatchStatusCounts={watching:number;ready:number;stale:number;expired:number;unavailable:number};
+type ScenarioEvent={at:number;symbol:string;direction:"LONG"|"SHORT";state:"READY"|"NEAR_READY"|"WATCHING"|"WITHDRAWN"|"UNVERIFIED";score:number;readiness:string;entry:number;stop:number;target:number;reasons:string[]};
 type RejectionCounts = Record<"candles" | "trend" | "volume" | "momentum" | "distance" | "prices" | "daily_level" | "reward_risk" | "error", number>;
 type ScanResponse = { success: boolean; scanned?: number; eligible?: number; analyzed?: number; batchSize?: number; scanConcurrency?: number; selectionDiagnostics?: SelectionDiagnostics; plans?: TradePlan[]; recommended24h?: TradePlan[]; watchedScenarios?: WatchedScenario[]; watchStatusCounts?: WatchStatusCounts; recommended24hComplete?: boolean; entryHorizonHours?: number; covered?: number; category?: string; rejectionCounts?: RejectionCounts; generatedAt?: string; error?: string; universePages?: number; universeInstruments?: number; coveragePercent?: number; cycleCompleted?: boolean; freshChecked?: number; staleChecked?: number; failedChecked?: number; unchecked?: number; oldestCheckedAgeSeconds?: number|null; batchDurationMs?: number; priorityRechecked?: number };
 const rejectionLabels: Array<[keyof RejectionCounts, string]> = [
@@ -39,6 +40,7 @@ export default function MarketScanner() {
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(true);
   const [showWaiting, setShowWaiting] = useState(false);
+  const [scenarioHistory,setScenarioHistory]=useState<ScenarioEvent[]>([]);
 
   const refresh = useCallback(async () => {
     try {
@@ -65,6 +67,20 @@ export default function MarketScanner() {
     const interval = window.setInterval(() => void refresh(), 10_000);
     return () => { window.clearTimeout(initial); window.clearInterval(interval); };
   }, [refresh]);
+
+  useEffect(()=>{
+    let active=true;
+    async function loadHistory(){
+      try{
+        const response=await fetch("/api/scenario-history?limit=40",{cache:"no-store"});
+        const data=await response.json() as {success?:boolean;events?:ScenarioEvent[]};
+        if(active&&response.ok&&data.success)setScenarioHistory(data.events??[]);
+      }catch{/* Local journal is optional; it must not block market monitoring. */}
+    }
+    void loadHistory();
+    const interval=window.setInterval(()=>void loadHistory(),60_000);
+    return ()=>{active=false;window.clearInterval(interval);};
+  },[]);
 
   // The strict, separately checked server shortlist is the ONLY "Top" group.
   // Other market analyses are observable but never presented as approved entries.
@@ -184,6 +200,17 @@ export default function MarketScanner() {
           </div>:
           <p className="mt-2 text-xs text-slate-400">Серед поточних збережених планів немає сценаріїв 7/8 з оцінкою від 85. Сканування триває.</p>}
       </section>
+      <details className="mb-4 rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-xs">
+        <summary className="cursor-pointer font-semibold text-slate-200">Історія сигналів · збережено на цьому сервері ({scenarioHistory.length} останніх подій)</summary>
+        {scenarioHistory.length?<div className="mt-3 max-h-64 space-y-2 overflow-auto">
+          {scenarioHistory.slice(0,20).map((e,i)=><div key={e.at+"-"+e.symbol+"-"+i} className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
+            <div><strong className="text-slate-100">{e.symbol}</strong> · <span className={e.state==="READY"?"text-emerald-300":"text-amber-300"}>{e.state}</span> · {e.direction} · {e.readiness} · {e.score}/100
+              <p className="mt-1 text-slate-400">{e.reasons[0]??"Зміна рівнів або стану"}</p></div>
+            <span className="text-slate-500">{new Date(e.at).toLocaleString("uk-UA")}</span>
+          </div>)}
+        </div>:<p className="mt-2 text-slate-400">Записів поки немає. Журнал заповнюється після перевірок сценаріїв.</p>}
+        <p className="mt-3 text-slate-500">Це локальна дослідницька історія; вона не підтверджує прибутковості й не створює ордерів.</p>
+      </details>
       <p className="mb-3 text-xs text-amber-200">«Підтверджено» означає технічну готовність MTF, не доказ прибутковості. Дослідний фільтр якості показано окремо. До завершення обходу це не рейтинг усього ринку.</p>
       <section className="mb-5 rounded-xl border border-slate-800 bg-slate-900/70 p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
