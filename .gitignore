@@ -45,3 +45,6 @@ next-env.d.ts
 
 # Immutable research candles (local only, never commit)
 .alpha-pulse-backtest-snapshots/
+
+# Local scanner candidate history (never commit trading records)
+.alpha-pulse-history/
