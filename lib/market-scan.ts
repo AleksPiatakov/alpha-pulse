@@ -163,6 +163,8 @@ const monitoredScenarios = new Map<string,WatchedScenario>();
 const visited = new Set<string>();
 const visitedAt = new Map<string,number>();
 const failedInSweep = new Set<string>();
+// Persistent across sweep resets; a failed refresh must not inherit earlier approval.
+const failedLatestRefresh = new Set<string>();
 let scanCursor = 0;
 let pinnedSweepOrder: string[] = [];
 let completedSweeps = 0;
@@ -209,7 +211,7 @@ async function doScan(): Promise<ScanResult> {
   if (eligible.length === 0) throw new Error("Bybit не повернув котирувань для торгових інструментів.");
   const universe = new Set(eligible.map((ticker) => ticker.symbol));
   const metadataBySymbol = new Map(registry.instruments.map((item) => [item.symbol, item]));
-  for (const symbol of seenPlans.keys()) if (!universe.has(symbol)) seenPlans.delete(symbol);
+  for (const symbol of seenPlans.keys()) if (!universe.has(symbol)) {seenPlans.delete(symbol);failedLatestRefresh.delete(symbol);}
   for (const symbol of monitoredScenarios.keys()) if (!universe.has(symbol)) monitoredScenarios.delete(symbol);
   for (const symbol of visited) if (!universe.has(symbol)) { visited.delete(symbol); visitedAt.delete(symbol); }
   // One inexpensive all-market ticker pass chooses priority. Every symbol still
@@ -255,8 +257,8 @@ async function doScan(): Promise<ScanResult> {
     const symbol = batch[i].symbol;
     visited.add(symbol);
     visitedAt.set(symbol,now);
-    if (result.status === "rejected") failedInSweep.add(symbol);
-    else failedInSweep.delete(symbol);
+    if (result.status === "rejected") {failedInSweep.add(symbol);failedLatestRefresh.add(symbol);}
+    else {failedInSweep.delete(symbol);failedLatestRefresh.delete(symbol);}
     if (result.status === "fulfilled" && result.value) {
       seenPlans.set(symbol, { plan: result.value, checkedAt: now });
       const updated=updateWatchedScenario(monitoredScenarios.get(symbol),result.value,now);
@@ -289,11 +291,14 @@ async function doScan(): Promise<ScanResult> {
   for (const [symbol, record] of seenPlans) {
     if (now - record.checkedAt > PLAN_TTL) seenPlans.delete(symbol);
   }
-  const allPlans = [...seenPlans.values()].map((record) => {
-    // A cached suggestion remains visible, but cannot retain "confirmed" after it becomes stale.
-    if (now - record.checkedAt <= CONFIRMATION_FRESHNESS) return record.plan;
+  const allPlans = [...seenPlans.entries()].map(([symbol,record]) => {
+    // Retain research visibility, but a failed latest refresh cannot be confirmed
+    // even when a previously successful observation is less than four minutes old.
+    const fetchFailed = failedLatestRefresh.has(symbol);
+    if (!fetchFailed && now - record.checkedAt <= CONFIRMATION_FRESHNESS) return record.plan;
     return { ...record.plan, status: "REVIEW" as const,
-      nextStep: "Сценарій потребує повторного аналізу перед Demo Limit." };
+      nextStep: fetchFailed ? "Остання перевірка Bybit завершилась помилкою. Потрібна нова успішна перевірка перед Demo Limit."
+        : "Сценарій потребує повторного аналізу перед Demo Limit." };
   });
   const plans = [...allPlans].sort((a, b) => (a.status === "ACTIVE" ? -1 : 1) - (b.status === "ACTIVE" ? -1 : 1) || b.score - a.score || b.riskReward - a.riskReward || a.symbol.localeCompare(b.symbol))
     .slice(0, MAX_VISIBLE);
