@@ -6,7 +6,7 @@ export async function GET(request: Request) {
   try {
     const { plans, recommended24h, watchedScenarios, watchStatusCounts, recommended24hComplete, entryHorizonHours, scanned, eligible, analyzed, covered, batchSize, scanConcurrency, deepScannedInSweep, selectionDiagnostics, category, rejectionCounts,
       universePages, universeInstruments, unsupportedInstruments,
-      coveragePercent, cycleCompleted, freshChecked, staleChecked, failedChecked, unchecked, oldestCheckedAgeSeconds } = await scanTechnicalPlans();
+      coveragePercent, cycleCompleted, freshChecked, staleChecked, failedChecked, unchecked, oldestCheckedAgeSeconds, batchDurationMs, priorityRechecked } = await scanTechnicalPlans();
     // Fast default response: do not block each market scan behind a potentially
     // 20-second external AI request. AI enrichment remains opt-in.
     const ai = new URL(request.url).searchParams.get("explain") === "1"
@@ -21,7 +21,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       success: true, scanned, eligible, analyzed, covered, batchSize, scanConcurrency, deepScannedInSweep, selectionDiagnostics, category, rejectionCounts,
       universePages, universeInstruments, unsupportedInstruments,
-      coveragePercent, cycleCompleted, freshChecked, staleChecked, failedChecked, unchecked, oldestCheckedAgeSeconds,
+      coveragePercent, cycleCompleted, freshChecked, staleChecked, failedChecked, unchecked, oldestCheckedAgeSeconds, batchDurationMs, priorityRechecked,
       plans: enrichedPlans, recommended24h, watchedScenarios, watchStatusCounts, recommended24hComplete, entryHorizonHours,
       aiStatus: ai.status,
       generatedAt: new Date().toISOString(),
