@@ -269,7 +269,7 @@ function AnalysisView(){
         </section>
         <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4"><h2 className="font-semibold">Історія сценарію</h2><p className="mt-2 text-xs text-slate-400">Локальна історія змін стану і рівнів, останні 30 записів</p><div className="mt-3 max-h-44 space-y-2 overflow-auto">{history.length?history.map(h=><div key={`${h.time}-${h.signature}`} className="border-b border-slate-800 pb-1 text-xs"><p className="text-amber-200">{h.label}</p><p className="text-slate-500">{when(h.time)}</p></div>):<p className="text-xs text-slate-500">Перший запис з’явиться після актуального аналізу.</p>}</div></section>
       </div>
-      <p className="mt-3 text-xs text-slate-500">Demo Limit створюється тільки після твого натискання в торговій формі та актуальної серверної перевірки. Реальний рахунок не підключено.</p>
+      <p className="mt-3 text-xs text-slate-500">Demo Limit створюється лише після натискання «Створити Demo Limit-угоду» та повторної серверної перевірки. Перехід на Bybit через назву пари призначений тільки для перегляду. Реальні ордери в Alpha Pulse вимкнені.</p>
     </>}
   </main>;
 }
