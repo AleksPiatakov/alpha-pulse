@@ -8,7 +8,7 @@ import { calculatePosition, defaultRiskSettings, normalizeRiskSettings, RISK_SET
 import { TradingChart } from "@/app/components/TradingChart";
 
 type AccountSnapshot = { balance: number; availableBalance: number | null; activeCount: number; source: string };
-type ScanResponse = { success?: boolean; plans?: TradePlan[]; error?: string };
+type ScanResponse = { success?: boolean; plan?: TradePlan|null; verified?: boolean; error?: string };
 type BacktestTrade = { signalTime: number; entryTime: number; exitTime: number; direction: "LONG" | "SHORT"; entry: number; stop: number; target: number; netR: number; result: "TP" | "SL" | "TIMEOUT" };
 type BacktestData = { success: boolean; mode?: string; filled?: number; signals?: number; unfilled?: number;
   wins?: number; winRate?: number | null; totalNetR?: number; averageNetR?: number | null;
@@ -72,10 +72,10 @@ function TradePageContent() {
     let active = true;
     const reassess = async () => {
       try {
-        const response = await fetch("/api/scan", { cache: "no-store" });
+        const response = await fetch(`/api/analysis/${encodeURIComponent(symbol)}`, { cache: "no-store" });
         const data = await response.json() as ScanResponse;
         if (!response.ok || !data.success) throw new Error(data.error || "Не вдалося переоцінити план.");
-        const freshPlan = data.plans?.find((candidate) => candidate.symbol === symbol);
+        const freshPlan = data.verified ? data.plan : null;
         if (!active) return;
         if (!freshPlan) { setAnalysisState("not-recommended"); return; }
         setPlan(freshPlan); localStorage.setItem("alpha-pulse-plan-v1", JSON.stringify(freshPlan)); setAnalysisState("current");
@@ -107,12 +107,12 @@ function TradePageContent() {
   const isLong = plan.direction === "LONG";
   const statusText = plan.status === "REVIEW" ? "Очікування підтвердження" : analysisState === "current" ? "Актуальний план" : analysisState === "not-recommended" ? "План неактуальний" : "Автоаналіз недоступний";
   return <main className="min-h-screen bg-slate-950 p-5 text-slate-100 md:p-7">
-    <header className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2"><button className="text-sm font-semibold text-emerald-400" onClick={() => router.push("/")}>← Сканер</button><h1 className="text-xl font-black">{plan.symbol} <span className={isLong ? "text-emerald-400" : "text-rose-400"}>· {plan.direction}</span></h1><span className="text-xs text-slate-500">score {plan.score}/100 · до {new Date(plan.expiresAt).toLocaleTimeString()}</span><Link href="/orders" className="ml-auto rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold hover:border-cyan-400">Активні заявки</Link><Link href="/settings" className=" rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold hover:border-cyan-400">Ризик і позиції</Link></header>
+    <header className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2"><button className="text-sm font-semibold text-emerald-400" onClick={() => router.push("/")}>← Сканер</button><h1 className="text-xl font-black"><a href={`https://www.bybit.com/trade/usdt/${symbol}`} target="_blank" rel="noopener noreferrer" title="Основний сайт Bybit · лише перегляд" className="hover:text-cyan-300">{plan.symbol} ↗</a> <span className={isLong ? "text-emerald-400" : "text-rose-400"}>· {plan.direction}</span></h1><span className="text-xs text-slate-500">score {plan.score}/100 · до {new Date(plan.expiresAt).toLocaleTimeString()}</span><Link href="/orders" className="ml-auto rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold hover:border-cyan-400">Активні заявки</Link><Link href="/settings" className=" rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold hover:border-cyan-400">Ризик і позиції</Link></header>
     <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
       <section><TradingChart plan={plan} /></section>
       <aside className="xl:sticky xl:top-5">
         <section className="overflow-hidden rounded-2xl border border-slate-700 bg-slate-900">
-          <div className="border-b border-slate-800 px-5 py-4"><div className="flex items-center justify-between gap-3"><h2 className="font-bold">План і заявка</h2><span className={`rounded px-2 py-1 text-[10px] font-bold ${analysisState === "current" ? "bg-emerald-950 text-emerald-300" : "bg-amber-950 text-amber-200"}`}>{statusText}</span></div></div>
+          <div className="border-b border-slate-800 px-5 py-4"><div className="flex items-center justify-between gap-3"><h2 className="font-bold">Виконати угоду · Bybit Demo</h2><span className={`rounded px-2 py-1 text-[10px] font-bold ${analysisState === "current" ? "bg-emerald-950 text-emerald-300" : "bg-amber-950 text-amber-200"}`}>{statusText}</span></div></div>
           <div className="space-y-5 p-5">
                         <dl className="grid grid-cols-2 gap-x-4 gap-y-4 text-sm"><Value label="Limit-вхід" value={price(plan.entryPrice)} color="text-cyan-300" /><Value label="Зона" value={`${price(plan.entryLow)}–${price(plan.entryHigh)}`} /><Value label="Stop-loss" value={price(plan.stopLoss)} color="text-rose-300" /><Value label="Take-profit" value={price(plan.takeProfit2)} color="text-emerald-300" /><Value label="Risk / Reward" value={`1:${plan.riskReward}`} /><Value label="Поточна ціна" value={price(plan.currentPrice)} /></dl>
             <p className={`rounded-lg px-3 py-2 text-xs ${analysisState === "current" ? "bg-emerald-950/40 text-emerald-100" : "bg-amber-950/40 text-amber-100"}`}>{plan.status === "REVIEW" ? "Попередній Limit-сценарій. Можна випробувати Demo-заявку; сервер повторно перевірить рівні й ризик." : analysisState === "current" ? "Рівні та розрахунок оновлюються автоматично." : analysisState === "not-recommended" ? "Сценарій не в поточному рейтингу. Перед Demo-заявкою сервер перевірить пару повторно." : "Автоаналіз недоступний. Сервер перевірить пару перед Demo-заявкою."}</p>
@@ -121,6 +121,8 @@ function TradePageContent() {
               <p className="mt-1">Це не перевірка майбутньої прибутковості та не дозвіл на ордер.</p>
               {!!plan.qualityGate?.reasons.length && <p className="mt-1">{plan.qualityGate.reasons.join("; ")}</p>}
             </div>
+            <div className="grid grid-cols-2 gap-2 text-center text-xs"><div className="rounded-lg bg-emerald-500 px-2 py-3 font-semibold text-slate-950">Demo · API</div><button disabled type="button" title="Реальний рахунок не підключений" className="cursor-not-allowed rounded-lg border border-slate-700 px-2 py-3 text-slate-500">Реальний рахунок · недоступний</button></div>
+            <div className="rounded-lg border border-slate-700 px-3 py-2 text-sm"><span>Кількість: <strong>{(sizing?.quantity??0).toLocaleString("uk-UA",{maximumFractionDigits:8})}</strong></span><span className="float-right text-cyan-300">≈ {money(sizing?.notional??0)} USDT</span></div>
             <div className="grid grid-cols-2 gap-3 border-y border-slate-800 py-4 text-sm"><Stat label="Ризик" value={money(sizing?.actualRisk ?? 0)} accent="text-rose-300" /><Stat label="Обсяг" value={(sizing?.quantity ?? 0).toLocaleString(undefined, { maximumFractionDigits: 5 })} /><Stat label="Номінал" value={money(sizing?.notional ?? 0)} accent="text-cyan-300" /><Stat label="Вільні слоти" value={`${sizing?.slotsRemaining ?? 0}/${settings.maxPositions}`} /></div>
             <details className="group rounded-lg bg-slate-950/70 p-3"><summary className="cursor-pointer text-xs font-semibold text-slate-300">Логіка та умова скасування</summary><div className="mt-3 space-y-3"><div className="flex flex-wrap gap-1.5">{plan.reasons.map((reason) => <span key={reason} className="rounded bg-slate-800 px-2 py-1 text-[11px] text-slate-300">{reason}</span>)}</div><div className="space-y-2 text-xs leading-relaxed">
               <p className="text-amber-100"><strong>Перегляд ідеї до входу:</strong> {plan.lifecycle?.setupReview ?? plan.invalidation}</p>
