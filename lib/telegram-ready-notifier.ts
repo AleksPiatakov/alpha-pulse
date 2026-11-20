@@ -13,6 +13,7 @@ import {parseExecutionRules,validateOrderPrecision} from "./bybit-execution-rule
 import type {InstrumentMeta} from "./bybit-universe.ts";
 import {isAlertEligiblePlan,reconcileAlerts,type ReadyAlert,type AlertEvent} from "./telegram-alert-rules.ts";
 import {GET as getDemoAccount} from "../app/api/account/route";
+import {verifyCurrentTechnicalPlan} from "./market-scan.ts";
 
 const directory=join(process.cwd(),".alpha-pulse-history");
 const file=join(directory,"telegram-alert-state.json");
@@ -54,6 +55,13 @@ async function validatedAlert(plan:TradePlan,now:number,account:{
   balance:number;availableBalance:number;activeCount:number
 }):Promise<ReadyAlert|null>{
   if(!isAlertEligiblePlan(plan,now))return null;
+  // Reconfirm the exact proposed levels from fresh Bybit inputs; a cached
+  // scan result alone is NOT sufficient to trigger a time-sensitive alert.
+  const fresh=await verifyCurrentTechnicalPlan(plan.symbol);
+  if(!fresh||!isAlertEligiblePlan(fresh,Date.now())||
+    fresh.id!==plan.id||fresh.direction!==plan.direction||
+    fresh.entryPrice!==plan.entryPrice||fresh.stopLoss!==plan.stopLoss||
+    fresh.takeProfit2!==plan.takeProfit2)return null;
   const size=calculatePosition({balance:account.balance,activeCount:account.activeCount,
     settings:defaultRiskSettings,entryPrice:plan.entryPrice,
     stopLoss:plan.stopLoss,takeProfit:plan.takeProfit2,availableBalance:account.availableBalance});
