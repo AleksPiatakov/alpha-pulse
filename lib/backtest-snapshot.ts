@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { ReplayBar, ReplayTimeframes } from "./mtf-backtest.ts";
+import type { ReplayTimeframes } from "./mtf-backtest.ts";
 
 const intervals = ["30", "60", "240", "D"] as const;
 const durations = { "30": 1_800_000, "60": 3_600_000, "240": 14_400_000, D: 86_400_000 } as const;
