@@ -5,6 +5,7 @@ import {Suspense, useCallback, useEffect, useState} from "react";
 import {useParams} from "next/navigation";
 import type {TradePlan} from "@/lib/trading";
 import {TradingChart} from "@/app/components/TradingChart";
+import {calculatePosition, defaultRiskSettings} from "@/lib/risk-settings";
 
 type AiExplanation={marketContext:string;entryLogic:string;confirmationConditions:string[];invalidation:string;riskAnalysis:string;beginnerExplanation:string;nextAction:string};
 type AiStatus={state:string;code:string;message:string;model?:string};
@@ -30,6 +31,11 @@ function AnalysisView(){
   const [aiLoading,setAiLoading]=useState(false);
   const [detailError,setDetailError]=useState("");
   const [history,setHistory]=useState<Array<{time:number;signature:string;label:string}>>([]);
+  const [account,setAccount]=useState<{balance:number;availableBalance:number;activeCount:number}|null>(null);
+  const [accountError,setAccountError]=useState("");
+  const [placing,setPlacing]=useState(false);
+  const [orderMessage,setOrderMessage]=useState("");
+  const [expandedHistory,setExpandedHistory]=useState(false);
   useEffect(()=>{
     const initial=window.setTimeout(()=>{
       try{
@@ -78,6 +84,21 @@ function AnalysisView(){
       setHistory(previous.slice(-30).reverse());
     }catch{setHistory([]);}
   },[symbol,current,freshness]);
+  useEffect(()=>{
+    let mounted=true;
+    const load=async()=>{
+      try{
+        const response=await fetch("/api/account",{cache:"no-store"});
+        const data=await response.json() as {success?:boolean;balance?:number;availableBalance?:number|null;activeCount?:number;error?:string};
+        if(!response.ok||!data.success||!Number.isFinite(data.balance)||!Number.isFinite(data.availableBalance)||!(data.balance!>0)||!(data.availableBalance!>0)||!Number.isInteger(data.activeCount))
+          throw Error(data.error||"Немає підтверджених даних Demo-рахунку.");
+        if(mounted){setAccount({balance:data.balance!,availableBalance:data.availableBalance!,activeCount:data.activeCount!});setAccountError("");}
+      }catch(e){if(mounted){setAccount(null);setAccountError(e instanceof Error?e.message:"Demo API недоступний");}}
+    };
+    void load();
+    const timer=window.setInterval(()=>void load(),30_000);
+    return ()=>{mounted=false;window.clearInterval(timer);};
+  },[]);
   const plan=current??snapshot;
   const verified=freshness==="verified"&&!!current;
   const ready=verified&&plan?.status==="ACTIVE"&&plan.qualityGate?.passed===true&&
@@ -85,6 +106,26 @@ function AnalysisView(){
     plan.limitEntry24h?.status==="HISTORICALLY_REACHABLE"&&
     plan.limitEntry24h?.sampleWindows>=60&&plan.riskReward>=2;
   const aiMatchesCurrent=!!plan&&!!aiSignature&&planSignature(plan)===aiSignature;
+  const sizing=plan&&account?calculatePosition({
+    balance:account.balance,activeCount:account.activeCount,settings:defaultRiskSettings,
+    entryPrice:plan.entryPrice,stopLoss:plan.stopLoss,takeProfit:plan.takeProfit2,availableBalance:account.availableBalance
+  }):null;
+  const money=(n:number)=>n.toLocaleString("uk-UA",{minimumFractionDigits:2,maximumFractionDigits:2});
+  async function placeDemo(){
+    if(!current||!ready||!sizing?.canOpen||placing)return;
+    setPlacing(true);setOrderMessage("");
+    try{
+      const response=await fetch("/api/trade",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({planId:current.id,symbol:current.symbol,
+          side:current.direction==="LONG"?"Buy":"Sell",qty:Number(sizing.quantity.toFixed(8)),
+          entryPrice:current.entryPrice,stopLoss:current.stopLoss,takeProfit:current.takeProfit2})});
+      const data=await response.json() as {success?:boolean;error?:string;data?:{orderId?:string}};
+      if(!response.ok||!data.success)throw Error(data.error||"Bybit Demo відхилив заявку.");
+      setOrderMessage("Demo Limit-заявку прийнято. Order ID: "+(data.data?.orderId??"див. Активні заявки"));
+      void refresh();
+    }catch(e){setOrderMessage(e instanceof Error?e.message:"Помилка Demo-заявки");}
+    finally{setPlacing(false);}
+  }
   const conditions=plan?[
     {label:"Технічний сигнал",ok:plan.status==="ACTIVE"},
     {label:"Дослідний фільтр якості",ok:plan.qualityGate?.passed===true},
