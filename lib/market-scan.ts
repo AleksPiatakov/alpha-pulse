@@ -12,7 +12,7 @@ import { closedBarAt, completedBarCutoff, observationMetadata, type MarketTimefr
 import { ClosedCandleCache } from "./closed-candle-cache.ts";
 import { updateWatchedScenario, ageWatchedScenario, selectWatchedScenarios, type WatchedScenario } from "./scenario-watchlist.ts";
 import { assessScanFreshness } from "./scan-freshness.ts";
-import { selectNearEntryRechecks } from "./near-entry-recheck.ts";
+import { selectPriorityRechecks } from "./priority-recheck.ts";
 import { fetchLinearUniverse, matchUniverseTickers, type UniverseResult, type InstrumentMeta } from "./bybit-universe.ts";
 import { parseExecutionRules } from "./bybit-execution-rules.ts";
 import { roundToTick } from "./technical-plan-core.ts";
@@ -188,6 +188,7 @@ export type ScanResult = {
   coveragePercent: number; cycleCompleted: boolean; completedSweeps: number;
   freshChecked: number; staleChecked: number; failedChecked: number; unchecked: number; oldestCheckedAgeSeconds: number | null;
   rejectionCounts: Record<FilterReason, number>;
+  batchDurationMs:number; priorityRechecked:number;
 };
 
 async function doScan(): Promise<ScanResult> {
@@ -218,12 +219,12 @@ async function doScan(): Promise<ScanResult> {
   const quotes = new Map(eligible.map(t => [t.symbol,t]));
   const chosen = selectSweepBatch(pinnedSweepOrder,scanCursor,CYCLE_BATCH);
   scanCursor = chosen.nextCursor;
-  // Extra near-entry checks do not advance or replace the full-market sweep.
-  // Four additional requests at most; the original market coverage remains intact.
-  const nearEntrySymbols = selectNearEntryRechecks(
+  // Independently recheck near-ready plans; bounded overhead and no change
+  // to the pinned full-market sweep cursor or order authorization.
+  const prioritySymbols = selectPriorityRechecks(
     seenPlans, new Set(chosen.symbols), universe, observedAt
   );
-  const batch = [...chosen.symbols, ...nearEntrySymbols]
+  const batch = [...chosen.symbols, ...prioritySymbols]
     .map(symbol => quotes.get(symbol)).filter((ticker): ticker is Ticker => ticker !== undefined);
   const rejectionCounts: Record<FilterReason, number> = {
     candles: 0, trend: 0, volume: 0, momentum: 0,
@@ -245,6 +246,7 @@ async function doScan(): Promise<ScanResult> {
     }
   }));
   const now = Date.now();
+  const batchDurationMs = now - observedAt;
   results.forEach((result, i) => {
     const symbol = batch[i].symbol;
     visited.add(symbol);
@@ -315,7 +317,7 @@ async function doScan(): Promise<ScanResult> {
     coveragePercent: Number((100 * visited.size / eligible.length).toFixed(1)),
     cycleCompleted: visited.size === eligible.length, completedSweeps,
     freshChecked, staleChecked, failedChecked, unchecked, oldestCheckedAgeSeconds,
-    rejectionCounts };
+    rejectionCounts, batchDurationMs, priorityRechecked:prioritySymbols.length };
 }
 
 export async function scanTechnicalPlans(): Promise<ScanResult> {
