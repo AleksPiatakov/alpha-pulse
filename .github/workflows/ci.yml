@@ -1,7 +1,7 @@
 name: Alpha Pulse safety checks
 on:
   push:
-    branches: [main]
+    branches: [main, "fix/ts-lint-blockers-20261120"]
   pull_request:
     branches: [main]
 permissions:
