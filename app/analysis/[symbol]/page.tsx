@@ -90,7 +90,7 @@ function AnalysisView(){
       try{
         const response=await fetch("/api/account",{cache:"no-store"});
         const data=await response.json() as {success?:boolean;balance?:number;availableBalance?:number|null;activeCount?:number;error?:string};
-        if(!response.ok||!data.success||!Number.isFinite(data.balance)||!typeof data.availableBalance==="number"&&Number.isFinite(data.availableBalance)||!(data.balance!>0)||!(data.availableBalance!>0)||!Number.isInteger(data.activeCount))
+        if(!response.ok||!data.success||!Number.isFinite(data.balance)||(typeof data.availableBalance!=="number"||!Number.isFinite(data.availableBalance))||!(data.balance!>0)||!(data.availableBalance!>0)||!Number.isInteger(data.activeCount))
           throw Error(data.error||"Немає підтверджених даних Demo-рахунку.");
         if(mounted){setAccount({balance:data.balance!,availableBalance:data.availableBalance!,activeCount:data.activeCount!});setAccountError("");}
       }catch(e){if(mounted){setAccount(null);setAccountError(e instanceof Error?e.message:"Demo API недоступний");}}
