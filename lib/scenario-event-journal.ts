@@ -73,7 +73,6 @@ export async function recordScenarioTransitions(
     const event=eventFor(row.symbol,row.plan,at,row.unavailable);
     if(event&&meaningful(event,previous.get(row.symbol))){
       events.push(event);
-      previous.set(row.symbol,event);
     }
   }
   if(!events.length)return 0;
@@ -88,6 +87,7 @@ export async function recordScenarioTransitions(
     }
   }catch(err){if((err as NodeJS.ErrnoException).code!=="ENOENT")throw err;}
   await appendFile(file,events.map(x=>JSON.stringify(x)).join("\n")+"\n",{mode:0o600});
+  for(const event of events)previous.set(event.symbol,event);
   return events.length;
 }
 export async function readScenarioHistory(symbol?:string,limit=100):Promise<ScenarioEvent[]>{
