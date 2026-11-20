@@ -166,6 +166,7 @@ const failedInSweep = new Set<string>();
 let scanCursor = 0;
 let pinnedSweepOrder: string[] = [];
 let completedSweeps = 0;
+let scanRevision = 0;
 let latestScan: { until: number; value: ScanResult } | undefined;
 let activeScan: Promise<ScanResult> | undefined;
 const SCAN_INTERVAL = 8_000;
@@ -191,7 +192,7 @@ export type ScanResult = {
   coveragePercent: number; cycleCompleted: boolean; completedSweeps: number;
   freshChecked: number; staleChecked: number; failedChecked: number; unchecked: number; oldestCheckedAgeSeconds: number | null;
   rejectionCounts: Record<FilterReason, number>;
-  batchDurationMs:number; priorityRechecked:number;
+  batchDurationMs:number; priorityRechecked:number; scanRevision:number; scanCompletedAt:number;
 };
 
 async function doScan(): Promise<ScanResult> {
@@ -261,11 +262,13 @@ async function doScan(): Promise<ScanResult> {
       const updated=updateWatchedScenario(monitoredScenarios.get(symbol),result.value,now);
       if(updated)monitoredScenarios.set(symbol,updated);
     } else {
-      seenPlans.delete(symbol);
       if(result.status==="rejected"){
         rejectionCounts.error++;
-        // Network failure is NOT evidence that the technical setup was invalidated.
+        // A failed Bybit request must not erase prior research. Keep the last
+        // known plan's original checkedAt: stale plans become REVIEW below and
+        // can NEVER become a fresh approved TOP or authorize a Demo order.
       }else {
+        seenPlans.delete(symbol);
         const updated=updateWatchedScenario(monitoredScenarios.get(symbol),null,now);
         if(updated)monitoredScenarios.set(symbol,updated);
       }
@@ -332,7 +335,8 @@ async function doScan(): Promise<ScanResult> {
     coveragePercent: Number((100 * visited.size / eligible.length).toFixed(1)),
     cycleCompleted: visited.size === eligible.length, completedSweeps,
     freshChecked, staleChecked, failedChecked, unchecked, oldestCheckedAgeSeconds,
-    rejectionCounts, batchDurationMs, priorityRechecked:prioritySymbols.length };
+    rejectionCounts, batchDurationMs, priorityRechecked:prioritySymbols.length,
+    scanRevision:++scanRevision,scanCompletedAt:Date.now() };
 }
 
 export async function scanTechnicalPlans(): Promise<ScanResult> {
