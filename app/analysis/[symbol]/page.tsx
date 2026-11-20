@@ -35,7 +35,7 @@ function AnalysisView(){
   const [accountError,setAccountError]=useState("");
   const [placing,setPlacing]=useState(false);
   const [orderMessage,setOrderMessage]=useState("");
-  const [expandedHistory,setExpandedHistory]=useState(false);
+
   useEffect(()=>{
     const initial=window.setTimeout(()=>{
       try{
@@ -72,6 +72,7 @@ function AnalysisView(){
   useEffect(()=>{
     if(!current||freshness!=="verified")return;
     const key="alpha-pulse-scenario-history-"+symbol;
+    let nextHistory:Array<{time:number;signature:string;label:string}>=[];
     try{
       const stored=JSON.parse(localStorage.getItem(key)||"[]") as Array<{time:number;signature:string;label:string}>;
       const previous=Array.isArray(stored)?stored.filter(x=>Number.isFinite(x.time)&&typeof x.signature==="string"&&typeof x.label==="string").slice(-29):[];
@@ -81,8 +82,11 @@ function AnalysisView(){
         previous.push({time:Date.now(),signature,label});
         localStorage.setItem(key,JSON.stringify(previous.slice(-30)));
       }
-      setHistory(previous.slice(-30).reverse());
-    }catch{setHistory([]);}
+      nextHistory=previous.slice(-30).reverse();
+    }catch{/* ignore invalid browser history */}
+    // Schedule visual state outside the synchronous effect body.
+    const frame=window.requestAnimationFrame(()=>setHistory(nextHistory));
+    return ()=>window.cancelAnimationFrame(frame);
   },[symbol,current,freshness]);
   useEffect(()=>{
     let mounted=true;

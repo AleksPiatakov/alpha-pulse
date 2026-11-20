@@ -37,8 +37,8 @@ async function readState():Promise<Stored>{
         active[symbol]={alert:entry.alert,messageId:Number.isSafeInteger(entry.messageId)&&
           (entry.messageId??0)>0?entry.messageId!:null,
           chatId:typeof entry.chatId==="string"?entry.chatId:"",
-          lastConfirmedAt:Number.isFinite(entry.lastConfirmedAt)?entry.lastConfirmedAt:entry.alert.verifiedAt,
-          misses:Number.isInteger(entry.misses)&&entry.misses>=0?entry.misses:0};
+          lastConfirmedAt:typeof entry.lastConfirmedAt==="number"&&Number.isFinite(entry.lastConfirmedAt)?entry.lastConfirmedAt:entry.alert.verifiedAt,
+          misses:typeof entry.misses==="number"&&Number.isInteger(entry.misses)&&entry.misses>=0?entry.misses:0};
       }else if(entry?.symbol===symbol){
         active[symbol]={alert:entry,messageId:null,chatId:"",lastConfirmedAt:entry.verifiedAt||0,misses:0};
       }
