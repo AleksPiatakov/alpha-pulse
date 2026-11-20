@@ -168,8 +168,8 @@ function TradePageContent() {
             {accountError && <p className="text-xs text-amber-200">Bybit: {accountError}</p>}
             {sizing?.cappedByMargin && <p className="text-xs text-amber-200">Обсяг обмежено доступною маржею Bybit без припущення про плече.</p>}
             {!sizing?.canOpen && <p className="rounded-lg border border-amber-900 bg-amber-950/30 p-3 text-xs text-amber-100">Недостатньо перевіреної маржі або досягнуто ліміту позицій чи ризику.</p>}
-            <p className="text-xs leading-relaxed text-slate-500">GTC Limit на {price(plan.entryPrice)} · не виконується по Market.</p>
-            <button disabled={busy || !sizing?.canOpen} onClick={() => void placeOrder()} className={`w-full rounded-lg px-4 py-3 font-bold text-slate-950 transition disabled:cursor-not-allowed disabled:opacity-50 ${isLong ? "bg-emerald-500 hover:bg-emerald-400" : "bg-rose-500 hover:bg-rose-400"}`}>{busy ? "Постановка…" : `Поставити ${plan.direction} Demo Limit`}</button>
+            <p className="text-xs leading-relaxed text-slate-500">Bybit Demo · {plan.direction} · GTC Limit на {price(plan.entryPrice)}. Позиція відкриється лише після виконання заявки, не по Market.</p>
+            <button disabled={busy || !sizing?.canOpen} onClick={() => void placeOrder()} className={`w-full rounded-lg px-4 py-3 font-bold text-slate-950 transition disabled:cursor-not-allowed disabled:opacity-50 ${isLong ? "bg-emerald-500 hover:bg-emerald-400" : "bg-rose-500 hover:bg-rose-400"}`}>{busy ? "Надсилаємо Limit-заявку…" : "Розмістити Limit-заявку"}</button>
             {message && <p className="rounded-lg border border-slate-700 p-3 text-sm">{message}</p>}
           </div>
         </section>
