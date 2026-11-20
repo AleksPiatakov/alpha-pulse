@@ -157,6 +157,17 @@ function AnalysisView(){
     }finally{setAiLoading(false);}
   }
   return <main className="min-h-screen bg-slate-950 px-3 py-3 text-slate-100 md:px-5">
+    <nav aria-label="Основна навігація Alpha Pulse" className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-3">
+      <Link href="/" className="text-xl font-black tracking-wide text-emerald-400">ALPHA PULSE</Link>
+      <div className="flex flex-wrap gap-2 text-xs">
+        <Link href="/" className="rounded-md border border-slate-700 px-3 py-2 hover:border-emerald-500">Рейтинг планів</Link>
+        <Link href="/strategy-lab" className="rounded-md border border-emerald-800 px-3 py-2 text-emerald-300 hover:border-emerald-500">Strategy Lab</Link>
+        <Link href="/backtest" className="rounded-md border border-slate-700 px-3 py-2 hover:border-emerald-500">Історичні тести</Link>
+        <Link href="/orders" className="rounded-md border border-slate-700 px-3 py-2 hover:border-emerald-500">Активні заявки</Link>
+        <Link href="/settings" className="rounded-md border border-slate-700 px-3 py-2 hover:border-emerald-500">Ризики і позиції</Link>
+      </div>
+      <span className="text-xs text-emerald-300">● Bybit Demo API</span>
+    </nav>
     <header className="mb-3 flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
       <div>
         <Link href="/" className="text-xs font-semibold text-emerald-300">← Усі можливості</Link>
