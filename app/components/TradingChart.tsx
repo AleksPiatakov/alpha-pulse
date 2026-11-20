@@ -24,7 +24,7 @@ export function TradingChart({ plan }: { plan: TradePlan }) {
       // Always fit the real Entry, Stop and final Take Profit into the viewport.
       autoscaleInfoProvider: original => {
         const base = original();
-        if (!base) return base;
+        if (!base?.priceRange) return base;
         const levels = [plan.entryPrice, plan.stopLoss, plan.takeProfit2];
         const min = Math.min(base.priceRange.minValue, ...levels);
         const max = Math.max(base.priceRange.maxValue, ...levels);
