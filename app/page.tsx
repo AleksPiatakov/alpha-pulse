@@ -11,7 +11,7 @@ type WatchedScenario = {symbol:string;direction:"LONG"|"SHORT";state:"WATCHING"|
 type WatchStatusCounts={watching:number;ready:number;stale:number;expired:number;unavailable:number};
 type ScenarioEvent={at:number;symbol:string;direction:"LONG"|"SHORT";state:"READY"|"NEAR_READY"|"WATCHING"|"WITHDRAWN"|"UNVERIFIED";score:number;readiness:string;entry:number;stop:number;target:number;reasons:string[]};
 type RejectionCounts = Record<"candles" | "trend" | "volume" | "momentum" | "distance" | "prices" | "daily_level" | "reward_risk" | "error", number>;
-type ScanResponse = { success: boolean; scanned?: number; eligible?: number; analyzed?: number; batchSize?: number; scanConcurrency?: number; selectionDiagnostics?: SelectionDiagnostics; plans?: TradePlan[]; recommended24h?: TradePlan[]; watchedScenarios?: WatchedScenario[]; watchStatusCounts?: WatchStatusCounts; recommended24hComplete?: boolean; entryHorizonHours?: number; covered?: number; category?: string; rejectionCounts?: RejectionCounts; generatedAt?: string; error?: string; universePages?: number; universeInstruments?: number; coveragePercent?: number; cycleCompleted?: boolean; freshChecked?: number; staleChecked?: number; failedChecked?: number; unchecked?: number; oldestCheckedAgeSeconds?: number|null; batchDurationMs?: number; priorityRechecked?: number };
+type ScanResponse = { success: boolean; scanned?: number; eligible?: number; analyzed?: number; batchSize?: number; scanConcurrency?: number; selectionDiagnostics?: SelectionDiagnostics; plans?: TradePlan[]; recommended24h?: TradePlan[]; watchedScenarios?: WatchedScenario[]; watchStatusCounts?: WatchStatusCounts; recommended24hComplete?: boolean; entryHorizonHours?: number; covered?: number; category?: string; rejectionCounts?: RejectionCounts; generatedAt?: string; error?: string; universePages?: number; universeInstruments?: number; coveragePercent?: number; cycleCompleted?: boolean; freshChecked?: number; staleChecked?: number; failedChecked?: number; unchecked?: number; oldestCheckedAgeSeconds?: number|null; batchDurationMs?: number; priorityRechecked?: number; scanRevision?: number; scanCompletedAt?: number };
 const rejectionLabels: Array<[keyof RejectionCounts, string]> = [
   ["candles", "Недостатньо свічок"], ["trend", "Немає узгодженого тренду"],
   ["volume", "Недостатній обсяг"], ["momentum", "Слабкий імпульс"],
@@ -33,6 +33,7 @@ export default function MarketScanner() {
   const [counts, setCounts] = useState({ scanned: 0, eligible: 0, analyzed: 0, covered: 0, batchSize: 0, scanConcurrency: 0 });
   const [freshness, setFreshness] = useState({fresh:0,stale:0,failed:0,unchecked:0,oldest:null as number|null});
   const [scanTiming,setScanTiming] = useState({durationMs:0,priority:0});
+  const [lastCompletedScan,setLastCompletedScan]=useState({revision:0,at:0});
   const [updatedAt, setUpdatedAt] = useState<string>();
   const [marketCoverage, setMarketCoverage] = useState({ pages: 0, instruments: 0, percent: 0, complete: false });
   const [rejectionCounts, setRejectionCounts] = useState<RejectionCounts>();
@@ -55,6 +56,7 @@ export default function MarketScanner() {
       setCounts({ scanned: data.scanned ?? 0, eligible: data.eligible ?? 0, analyzed: data.analyzed ?? 0, covered: data.covered ?? 0, batchSize: data.batchSize ?? 0, scanConcurrency: data.scanConcurrency ?? 0 });
       setFreshness({fresh:data.freshChecked ?? 0,stale:data.staleChecked ?? 0,failed:data.failedChecked ?? 0,unchecked:data.unchecked ?? 0,oldest:data.oldestCheckedAgeSeconds ?? null});
       setScanTiming({durationMs:data.batchDurationMs??0,priority:data.priorityRechecked??0});
+      setLastCompletedScan({revision:data.scanRevision??0,at:data.scanCompletedAt??0});
       setUpdatedAt(data.generatedAt); setRejectionCounts(data.rejectionCounts);setSelectionDiagnostics(data.selectionDiagnostics); setError(undefined);
       setMarketCoverage({ pages: data.universePages ?? 0, instruments: data.universeInstruments ?? 0,
         percent: data.coveragePercent ?? 0, complete: data.cycleCompleted ?? false });
@@ -128,6 +130,7 @@ export default function MarketScanner() {
           <span>Обхід <strong className="font-semibold text-slate-200">{counts.covered}/{counts.eligible}</strong> ({marketCoverage.percent}%) {marketCoverage.complete ? "✓" : "…"}</span>
           <span>Партія <strong className="font-semibold text-slate-200">{counts.analyzed}</strong> · потоків {counts.scanConcurrency}</span>
           <span title="Фактична тривалість останнього пакета; пріоритетні перевірки не замінюють обхід">Час пакета <strong className="text-slate-200">{(scanTiming.durationMs/1000).toFixed(1)} с</strong> · пріоритетних {scanTiming.priority}</span>
+          <span title="Лічильник збільшується лише після завершення нової глибокої перевірки. Час оновлення сторінки не означає нову перевірку.">Пакет №<strong className="text-slate-200">{lastCompletedScan.revision}</strong> · завершено {lastCompletedScan.at?new Date(lastCompletedScan.at).toLocaleTimeString("uk-UA",{hour:"2-digit",minute:"2-digit",second:"2-digit"}):"—"}</span>
           <span title="Успішна перевірка в межах 4 хвилин; охоплення обходу не дорівнює свіжості">Свіжі <strong className="font-semibold text-emerald-300">{freshness.fresh}</strong> · застарілі {freshness.stale} · помилки {freshness.failed} · не перевірені {freshness.unchecked}</span>
           <span>Кандидатів 24h <strong className="font-semibold text-emerald-300">{featuredCount}</strong></span>
           <span>Оновлено <strong className="font-semibold tabular-nums text-slate-200">{updatedAt ? new Date(updatedAt).toLocaleTimeString() : "—"}</strong></span>
