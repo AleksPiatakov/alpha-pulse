@@ -195,7 +195,10 @@ function AnalysisView(){
       </section>
       <aside className="rounded-xl border border-slate-700 bg-slate-900/70 p-4 lg:sticky lg:top-3">
         <h2 className="text-lg font-semibold">Виконати угоду</h2>
-        <div className="mt-3 grid grid-cols-2 gap-2 text-center text-xs"><div className="rounded-lg bg-emerald-500 px-2 py-3 font-semibold text-slate-950">Bybit Demo · API</div><button type="button" disabled className="cursor-not-allowed rounded-lg border border-slate-700 px-2 py-3 text-slate-500">Реальний рахунок · не підключено</button></div>
+        <div className="mt-3 grid grid-cols-2 gap-2 text-center">
+          <div className={`mx-auto flex min-h-12 w-[90%] items-center justify-center rounded-lg px-2 py-2 text-center text-base font-extrabold text-white ${plan.direction==="SHORT"?"bg-rose-600":"bg-emerald-600"}`}>Bybit Demo · {plan.direction}</div>
+          <button type="button" disabled title="Реальний рахунок не підключено" className="cursor-not-allowed rounded-lg border border-slate-700 px-2 py-2 text-xs text-slate-500">Реальний рахунок · не підключено</button>
+        </div>
         <div className="mt-3 rounded-lg border border-amber-800 bg-amber-950/20 p-3"><p className="text-sm font-semibold text-amber-200">{ready?"Кандидат до ручної перевірки":"Очікуємо підтвердження"}</p><p className="mt-1 text-xs text-slate-300">{ready?"Перед заявкою потрібна серверна перевірка.":plan.qualityGate?.reasons[0]??plan.nextStep}</p><p className="mt-2 text-xs text-slate-400">Оцінка {plan.score}/100 · Готовність {plan.readiness?.met??0}/{plan.readiness?.total??8} · R:R 1:{plan.riskReward.toFixed(2)}</p></div>
         <p className="mt-3 text-sm text-slate-300">Тип заявки <strong className="float-right">Limit (GTC)</strong></p>
         <div className="mt-3 grid grid-cols-3 gap-2 text-xs"><div><p className="text-slate-400">Entry</p><p className="mt-1 rounded border border-slate-700 p-2 text-cyan-200">{number(plan.entryPrice)}</p></div><div><p className="text-slate-400">Stop Loss</p><p className="mt-1 rounded border border-slate-700 p-2 text-rose-300">{number(plan.stopLoss)}</p></div><div><p className="text-slate-400">Take Profit</p><p className="mt-1 rounded border border-slate-700 p-2 text-emerald-300">{number(plan.takeProfit2)}</p></div></div>
@@ -209,7 +212,7 @@ function AnalysisView(){
           {accountError&&<p className="mt-2 text-xs text-amber-200">Demo API: {accountError}</p>}
         </div>
         <button type="button" onClick={()=>void placeDemo()} disabled={!ready||!sizing?.canOpen||placing}
-          className="mt-4 w-full rounded-lg bg-emerald-500 px-3 py-3 text-center text-sm font-bold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500">
+          className={`mx-auto mt-4 block w-[90%] rounded-lg px-3 py-3 text-center text-base font-extrabold text-white shadow-sm transition disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500 ${plan.direction==="SHORT"?"bg-rose-600 hover:bg-rose-500":"bg-emerald-600 hover:bg-emerald-500"}`}>
           {placing?"Передаємо Demo Limit…":ready?"Створити Demo Limit-угоду":"Demo Limit · очікує підтвердження"}
         </button>
         {orderMessage&&<p role="status" className="mt-2 rounded border border-slate-700 p-2 text-xs">{orderMessage}</p>}
