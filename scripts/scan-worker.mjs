@@ -21,8 +21,12 @@ async function tick() {
       throw new Error("Scanner API returned inconsistent market coverage; not reporting a successful sweep.");
     }
     const telegram=result.telegram;
-    if(telegram?.enabled && (telegram.sent>0 || telegram.errors>0)){
-      console.log(`Telegram alerts: sent ${telegram.sent}, errors ${telegram.errors} (Demo only)`);
+    if(telegram?.enabled === false && !tick.telegramDisabledReported){
+      console.warn("Telegram alerts DISABLED: check TELEGRAM_ALERTS_ENABLED=true, TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in local .env.local; restart Next.js.");
+      tick.telegramDisabledReported=true;
+    } else if(telegram?.enabled === true){
+      tick.telegramDisabledReported=false;
+      if(telegram.sent>0 || telegram.errors>0) console.log(`Telegram alerts: sent ${telegram.sent}, errors ${telegram.errors} (Demo only)`);
     }
     const stamp = new Date().toISOString();
     console.log(`[${stamp}] coverage ${result.covered}/${result.eligible} (${result.coveragePercent}%) | this batch ${result.analyzed} | sweep ${result.cycleCompleted ? "complete" : "in progress"} | registry ${result.universeInstruments} active instruments / ${result.universePages} pages | sweeps ${result.completedSweeps ?? "?"} | fresh ${result.freshChecked ?? "?"}/${result.eligible}, stale-checked ${result.staleChecked ?? "?"}, failed ${result.failedChecked ?? "?"}, not-visited ${result.unchecked ?? "?"}, oldest ${result.oldestCheckedAgeSeconds ?? "?"}s | priority ${result.priorityRechecked ?? "?"} | batch ${result.batchDurationMs ?? "?"}ms | watching ${result.watchStatusCounts?.watching ?? 0}, review-ready ${result.watchStatusCounts?.ready ?? 0}, stale ${result.watchStatusCounts?.stale ?? 0}, expired ${result.watchStatusCounts?.expired ?? 0}, unavailable ${result.watchStatusCounts?.unavailable ?? 0} (research-only; not orders)`);
