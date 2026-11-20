@@ -72,6 +72,11 @@ export default function MarketScanner() {
   const unconfirmedPlans = plans.filter(p=>!topSymbols.has(p.symbol))
     .sort(comparePlanPriority);
   const featuredCount = recommended24h.length;
+  // Research-only shortlist, not an approved order queue. Drawn from current
+  // cached plans; a 7/8 score never bypasses the strict TOP gate.
+  const nearReady = plans.filter(p=>p.status==="REVIEW"&&
+    p.readiness?.met===7&&p.readiness?.total===8&&p.score>=85&&
+    !topSymbols.has(p.symbol)).sort(comparePlanPriority).slice(0,10);
   const groups = showWaiting ? [{
     key: "observing", title: "Досліджені пари · не готові до входу",
     items: unconfirmedPlans,
@@ -161,6 +166,23 @@ export default function MarketScanner() {
             </div>
           </button>)}
         </div> : <p className="text-sm text-slate-400">Поки немає кандидатів, що пройшли всі попередні умови. Це не означає, що ринок уже повністю перевірено.</p>}
+      </section>
+      <section className="mb-4 rounded-xl border border-slate-800 bg-slate-900/70 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold text-amber-200">Майже готові · пріоритетна перевірка</h3>
+          <span className="text-xs text-slate-400">7/8 · оцінка від 85 · максимум 10 із поточних збережених планів</span>
+        </div>
+        {nearReady.length?
+          <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+            {nearReady.map(p=><button type="button" key={p.id} onClick={()=>openPlan(p)}
+              className="rounded-lg border border-amber-900/50 bg-slate-950/50 p-3 text-left hover:border-amber-500">
+              <div className="flex items-center justify-between gap-2"><strong className="text-sm">{p.symbol}</strong><span className={p.direction==="LONG"?"text-xs text-emerald-300":"text-xs text-rose-300"}>{p.direction}</span></div>
+              <p className="mt-1 text-xs text-slate-300">Оцінка {p.score}/100 · готовність {p.readiness.met}/8 · R:R 1:{p.riskReward.toFixed(2)}</p>
+              <p className="mt-2 line-clamp-2 text-xs text-amber-200">{p.readiness.missing[0]??"Очікується підтвердження"}</p>
+              <p className="mt-2 text-[11px] text-slate-500">Тільки спостереження · Demo-заявка потребує 8/8 та всіх інших умов</p>
+            </button>)}
+          </div>:
+          <p className="mt-2 text-xs text-slate-400">Серед поточних збережених планів немає сценаріїв 7/8 з оцінкою від 85. Сканування триває.</p>}
       </section>
       <p className="mb-3 text-xs text-amber-200">«Підтверджено» означає технічну готовність MTF, не доказ прибутковості. Дослідний фільтр якості показано окремо. До завершення обходу це не рейтинг усього ринку.</p>
       <section className="mb-5 rounded-xl border border-slate-800 bg-slate-900/70 p-4">
