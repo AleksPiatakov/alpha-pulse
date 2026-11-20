@@ -11,20 +11,38 @@ import {DEMO_BYBIT_URL,type TradePlan} from "./trading.ts";
 import {calculatePosition,defaultRiskSettings} from "./risk-settings.ts";
 import {parseExecutionRules,validateOrderPrecision} from "./bybit-execution-rules.ts";
 import type {InstrumentMeta} from "./bybit-universe.ts";
-import {isAlertEligiblePlan,reconcileAlerts,type ReadyAlert,type AlertEvent} from "./telegram-alert-rules.ts";
+import {isAlertEligiblePlan,type ReadyAlert,type AlertEvent} from "./telegram-alert-rules.ts";
+import {shouldRetireTelegramSignal} from "./telegram-message-lifecycle.ts";
 import {GET as getDemoAccount} from "../app/api/account/route";
 import {verifyCurrentTechnicalPlan} from "./market-scan.ts";
 
 const directory=join(process.cwd(),".alpha-pulse-history");
 const file=join(directory,"telegram-alert-state.json");
-type Stored={active:Record<string,ReadyAlert>;updatedAt:number};
+type SentAlert={
+  alert:ReadyAlert;messageId:number|null;chatId:string;lastConfirmedAt:number;misses:number;
+};
+type Stored={active:Record<string,SentAlert>;updatedAt:number};
 let inFlight:Promise<{enabled:boolean;sent:number;errors:number}>|undefined;
 const money=(value:number)=>value.toLocaleString("uk-UA",{maximumFractionDigits:8});
 async function readState():Promise<Stored>{
   try{
     const raw=JSON.parse(await readFile(file,"utf8")) as Stored;
     if(!raw||typeof raw.active!=="object"||!raw.active||Array.isArray(raw.active))throw Error("Incorrect Telegram state");
-    return raw;
+    // Migration from initial dedup-only state: old records have no message ID.
+    // We must NEVER guess an ID or delete unrelated channel messages.
+    const active:Record<string,SentAlert>={};
+    for(const [symbol,record] of Object.entries(raw.active)){
+      const entry=record as unknown as Partial<SentAlert>&ReadyAlert;
+      if(entry?.alert?.symbol===symbol){
+        active[symbol]={...entry,messageId:Number.isSafeInteger(entry.messageId)&&
+          (entry.messageId??0)>0?entry.messageId!:null,
+          lastConfirmedAt:Number.isFinite(entry.lastConfirmedAt)?entry.lastConfirmedAt:entry.alert.verifiedAt,
+          misses:Number.isInteger(entry.misses)&&entry.misses>=0?entry.misses:0};
+      }else if(entry?.symbol===symbol){
+        active[symbol]={alert:entry,messageId:null,chatId:"",lastConfirmedAt:entry.verifiedAt||0,misses:0};
+      }
+    }
+    return {active,updatedAt:raw.updatedAt||0};
   }catch(e){
     if((e as NodeJS.ErrnoException).code==="ENOENT")return {active:{},updatedAt:0};
     throw e; // Do not flood Telegram if de-duplication state cannot be read.
@@ -36,14 +54,43 @@ async function saveState(state:Stored){
   const fs=await import("node:fs/promises");
   await fs.rename(file+".tmp",file);
 }
-async function sendTelegram(token:string,chatId:string,text:string){
-  const response=await fetch(`https://api.telegram.org/bot${token}/sendMessage`,{
+async function callTelegram(token:string,method:string,payload:Record<string,unknown>){
+  const response=await fetch(`https://api.telegram.org/bot${token}/${method}`,{
     method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({chat_id:chatId,text,disable_web_page_preview:true}),
+    body:JSON.stringify(payload),
     signal:AbortSignal.timeout(12_000),cache:"no-store",
   });
-  const result=await response.json() as {ok?:boolean;description?:string};
-  if(!response.ok||!result.ok)throw Error("Telegram sendMessage rejected: "+(result.description??response.status));
+  const result=await response.json() as {ok?:boolean;description?:string;result?:unknown};
+  if(!response.ok||!result.ok)throw Error("Telegram "+method+" rejected: "+(result.description??response.status));
+  return result.result;
+}
+async function sendTelegram(token:string,chatId:string,text:string){
+  const result=await callTelegram(token,"sendMessage",{chat_id:chatId,text,disable_web_page_preview:true});
+  const messageId=(result as {message_id?:number}|null)?.message_id;
+  if(!Number.isSafeInteger(messageId)||!(messageId!>0))
+    throw Error("Telegram did not return a valid message_id; cannot safely track cleanup.");
+  return messageId!;
+}
+async function retireMessage(token:string,chatId:string,symbol:string,record:SentAlert){
+  // An earlier bot implementation may not have saved message_id.
+  if(!record.messageId||record.chatId!==chatId)return "untracked";
+  try{
+    await callTelegram(token,"deleteMessage",{chat_id:chatId,message_id:record.messageId});
+    return "deleted";
+  }catch(error){
+    // Telegram generally limits deletion of old messages; editing is a fallback,
+    // not a fabricated successful deletion.
+    try{
+      await callTelegram(token,"editMessageText",{
+        chat_id:chatId,message_id:record.messageId,
+        text:`⛔ НЕАКТУАЛЬНИЙ СИГНАЛ · ALPHA PULSE DEMO\n${symbol}\nПопередні Entry, SL і TP більше не підтверджені. Не створюйте заявку за цим повідомленням.`,
+        disable_web_page_preview:true,
+      });
+      return "edited";
+    }catch(editError){
+      throw new Error(`Cannot remove or mark old Telegram message: ${String(error)}; ${String(editError)}`);
+    }
+  }
 }
 function format(event:AlertEvent):string{
   if(event.kind==="CANCELLED")return `⚠ ALPHA PULSE · DEMO\n${event.symbol}: попередній сигнал втратив актуальність.\nНе використовуйте старі Entry/SL/TP. Відкрийте Alpha Pulse для повторної перевірки. Жодних ордерів не створено.`;
@@ -109,20 +156,47 @@ async function processAlerts(plans:readonly TradePlan[]){
   // If any validation was unavailable, do not interpret it as a cancellation.
   if(errors)return {enabled:true,sent:0,errors};
   const state=await readState();
-  const events=reconcileAlerts(new Set(Object.keys(state.active)),alerts);
   let sent=0;
-  for(const event of events){
+  // Reconfirm active signals while tracking consecutive missing checks.
+  // Absence from one rotating TOP list must never delete a live message.
+  const current=new Map(alerts.map(a=>[a.symbol,a]));
+  for(const [symbol,record] of Object.entries(state.active)){
+    if(record.chatId&&record.chatId!==chatId)continue; // Never mutate another channel.
+    const verified=current.get(symbol);
+    if(verified){
+      record.alert=verified;
+      record.lastConfirmedAt=Date.now();
+      record.misses=0;
+      continue;
+    }
+    record.misses+=1;
+    if(!shouldRetireTelegramSignal(record.misses,record.lastConfirmedAt,Date.now()))continue;
     try{
-      await sendTelegram(token,chatId,format(event));
-      if(event.kind==="READY"&&event.alert)state.active[event.symbol]=event.alert;
-      else delete state.active[event.symbol];
-      state.updatedAt=Date.now();
+      const outcome=await retireMessage(token,chatId,symbol,record);
+      if(outcome==="untracked")
+        console.warn("Telegram previous message has no tracked ID; cannot remove:",symbol);
+      delete state.active[symbol];
+      await saveState(state);
+    }catch(error){
+      errors++;
+      console.warn("Telegram old signal cleanup failed:",error instanceof Error?error.message:"unknown error");
+    }
+  }
+  // Persist latest confirmed timestamps so delayed scans do not erase messages.
+  await saveState(state);
+  for(const alert of alerts){
+    if(state.active[alert.symbol])continue;
+    try{
+      const messageId=await sendTelegram(token,chatId,format({kind:"READY",symbol:alert.symbol,alert}));
+      state.active[alert.symbol]={
+        alert,messageId,chatId,lastConfirmedAt:Date.now(),misses:0,
+      };
       await saveState(state);
       sent++;
-    }catch(err){
+    }catch(error){
       errors++;
-      console.warn("Alpha Pulse Telegram notification failed:",err instanceof Error?err.message:"send failed");
-      break; // Retry on next worker poll, never mark an unsent alert as delivered.
+      console.warn("Alpha Pulse Telegram notification failed:",error instanceof Error?error.message:"send failed");
+      break;
     }
   }
   return {enabled:true,sent,errors};
