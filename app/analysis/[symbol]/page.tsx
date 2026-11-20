@@ -122,9 +122,9 @@ function AnalysisView(){
         body:JSON.stringify({planId:current.id,symbol:current.symbol,
           side:current.direction==="LONG"?"Buy":"Sell",qty:Number(sizing.quantity.toFixed(8)),
           entryPrice:current.entryPrice,stopLoss:current.stopLoss,takeProfit:current.takeProfit2})});
-      const data=await response.json() as {success?:boolean;error?:string;data?:{orderId?:string}};
+      const data=await response.json() as {success?:boolean;error?:string;data?:{orderId?:string};quantity?:number;adjustedQuantity?:boolean};
       if(!response.ok||!data.success)throw Error(data.error||"Bybit Demo відхилив заявку.");
-      setOrderMessage("Demo Limit-заявку прийнято. Order ID: "+(data.data?.orderId??"див. Активні заявки"));
+      setOrderMessage("Demo Limit-заявку прийнято. "+(data.adjustedQuantity?"Кількість скориговано до кроку Bybit: "+data.quantity+". ":"")+"Order ID: "+(data.data?.orderId??"див. Активні заявки"));
       void refresh();
     }catch(e){setOrderMessage(e instanceof Error?e.message:"Помилка Demo-заявки");}
     finally{setPlacing(false);}
@@ -206,7 +206,7 @@ function AnalysisView(){
         <p className="mt-3 text-sm text-slate-300">Тип заявки <strong className="float-right">Limit (GTC)</strong></p>
         <div className="mt-3 grid grid-cols-3 gap-2 text-xs"><div><p className="text-slate-400">Entry</p><p className="mt-1 rounded border border-slate-700 p-2 text-cyan-200">{number(plan.entryPrice)}</p></div><div><p className="text-slate-400">Stop Loss</p><p className="mt-1 rounded border border-slate-700 p-2 text-rose-300">{number(plan.stopLoss)}</p></div><div><p className="text-slate-400">Take Profit</p><p className="mt-1 rounded border border-slate-700 p-2 text-emerald-300">{number(plan.takeProfit2)}</p></div></div>
         <div className="mt-3">
-          <p className="mb-1 text-xs text-slate-400">Кількість ({symbol.replace(/USDT$/,"")}) · номінал USDT</p>
+          <p className="mb-1 text-xs text-slate-400">Попередня кількість ({symbol.replace(/USDT$/,"")}) · номінал USDT</p>
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-700 bg-slate-950/50 px-3 py-2 text-sm">
             <strong>{sizing?.quantity.toLocaleString("uk-UA",{maximumFractionDigits:8})??"—"}</strong>
             <strong className="text-cyan-300">{sizing?"≈ "+money(sizing.notional)+" USDT":"— USDT"}</strong>
