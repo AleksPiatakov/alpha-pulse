@@ -19,7 +19,22 @@ export function TradingChart({ plan }: { plan: TradePlan }) {
     const host = hostRef.current; if (!host) return;
     const precision = pricePrecision([plan.currentPrice, plan.entryPrice, plan.stopLoss, plan.takeProfit1, plan.takeProfit2]);
     const chart = createChart(host, { width: host.clientWidth, height: 420, layout: { background: { type: ColorType.Solid, color: "#0b1120" }, textColor: "#94a3b8", fontFamily: "Inter, ui-sans-serif, system-ui" }, grid: { vertLines: { color: "#182235" }, horzLines: { color: "#182235" } }, rightPriceScale: { borderColor: "#334155", scaleMargins: { top: .12, bottom: .12 } }, timeScale: { borderColor: "#334155", timeVisible: true, secondsVisible: false, rightOffset: 14 }, handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false }, handleScale: { mouseWheel: true, axisPressedMouseMove: true, pinch: true }, crosshair: { mode: CrosshairMode.Normal, vertLine: { visible: false, labelVisible: false }, horzLine: { visible: true, labelVisible: true, color: "#94a3b8", width: 1, style: LineStyle.Dashed, labelBackgroundColor: "#334155" } } });
-    const series = chart.addSeries(CandlestickSeries, { upColor: "#00c176", downColor: "#fb4b5c", borderVisible: false, wickUpColor: "#00c176", wickDownColor: "#fb4b5c", priceLineVisible: false, lastValueVisible: true, priceFormat: { type: "price", precision, minMove: 10 ** -precision } });
+    const series = chart.addSeries(CandlestickSeries, { upColor: "#00c176", downColor: "#fb4b5c", borderVisible: false, wickUpColor: "#00c176", wickDownColor: "#fb4b5c", priceLineVisible: false, lastValueVisible: true, priceFormat: { type: "price", precision, minMove: 10 ** -precision },
+      // Price lines alone do not extend the candle autoscale range.
+      // Always fit the real Entry, Stop and final Take Profit into the viewport.
+      autoscaleInfoProvider: original => {
+        const base = original();
+        if (!base) return base;
+        const levels = [plan.entryPrice, plan.stopLoss, plan.takeProfit2];
+        const min = Math.min(base.priceRange.minValue, ...levels);
+        const max = Math.max(base.priceRange.maxValue, ...levels);
+        const padding = Math.max((max - min) * 0.07, min * 0.002);
+        return { ...base, priceRange: {
+          minValue: Math.max(0, min - padding),
+          maxValue: max + padding,
+        } };
+      },
+    });
     chartRef.current = chart; seriesRef.current = series;
     // Grounded, visible entry/risk/profit lines, matching the approved workspace.
     [
