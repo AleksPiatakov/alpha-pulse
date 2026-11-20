@@ -220,7 +220,7 @@ function AnalysisView(){
               <span className="text-slate-400">{sizing?money(sizing.actualRisk)+" USDT":"—"}</span>
               <span className="text-emerald-300">Потенційний TP: {sizing?money(sizing.potentialProfit)+" USDT":"—"}</span>
             </div>
-            <p className="mt-1 text-[11px] text-slate-500">Номінал: {exposurePct!==null?exposurePct.toFixed(1).replace(".",",")+"% балансу":"—"} · це не ризик. Сукупний ліміт 3% перевіряється окремо.</p>
+            <p className="mt-1 text-[11px] text-slate-500">Номінал: {exposurePct!==null?exposurePct.toFixed(1).replace(".",",")+"% балансу":"—"} · це не ризик. Сукупний ризик 3%: перед угодою враховуй інші відкриті позиції.</p>
           </div>
           {tpDiagnostic?.status==="NEAR_OBSTACLE"&&<div className="mt-2 rounded-lg border border-amber-700/70 bg-amber-950/20 px-3 py-2 text-xs">
             <strong className="text-amber-200">⚠ TP поблизу {plan.direction==="SHORT"?"денного мінімуму / підтримки":"денного максимуму / опору"}</strong>
