@@ -9,10 +9,12 @@ export type ReadyAlert={
 export type AlertEvent={kind:"READY"|"CANCELLED";symbol:string;alert?:ReadyAlert};
 export function reconcileAlerts(previous:ReadonlySet<string>,current:readonly ReadyAlert[]):AlertEvent[]{
   const next=new Map(current.map(x=>[x.symbol,x]));
-  return [...previous].filter(x=>!next.has(x)).sort().map(symbol=>({kind:"CANCELLED" as const,symbol}))
-    .concat([...next.values()].filter(x=>!previous.has(x.symbol))
-      .sort((a,b)=>a.symbol.localeCompare(b.symbol))
-      .map(alert=>({kind:"READY" as const,symbol:alert.symbol,alert})));
+  const cancelled:AlertEvent[]=[...previous].filter(x=>!next.has(x)).sort()
+    .map(symbol=>({kind:"CANCELLED",symbol}));
+  const ready:AlertEvent[]=[...next.values()].filter(x=>!previous.has(x.symbol))
+    .sort((a,b)=>a.symbol.localeCompare(b.symbol))
+    .map(alert=>({kind:"READY",symbol:alert.symbol,alert}));
+  return [...cancelled,...ready];
 }
 export function isAlertEligiblePlan(plan:TradePlan,now:number):boolean{
   const at=plan.observation?.observedAt;
