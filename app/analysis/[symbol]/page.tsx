@@ -103,7 +103,7 @@ function AnalysisView(){
     <header className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-5">
       <div>
         <Link href="/" className="text-xs font-semibold text-emerald-300">← Усі можливості</Link>
-        <h1 className="mt-1 text-2xl font-bold">{symbol} <span className="text-base font-normal text-slate-400">· {current?.direction??snapshot?.direction??"аналіз"}</span></h1>
+        <h1 className="mt-1 text-2xl font-bold"><a href={bybit(symbol)} target="_blank" rel="noopener noreferrer" title="Відкрити пару на основній платформі Bybit для перегляду" className="hover:text-cyan-300">{symbol} ↗</a> <span className="text-base font-normal text-slate-400">· {current?.direction??snapshot?.direction??"аналіз"}</span></h1>
       </div>
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="text-xs text-emerald-300">● Автооновлення 30 с</span><button type="button" onClick={()=>void refresh()} className="rounded-lg border border-slate-700 px-3 py-2 hover:border-cyan-500">↻ Оновити</button>
@@ -121,44 +121,23 @@ function AnalysisView(){
     {!plan?<div className="rounded-xl border border-slate-800 p-7 text-slate-300">
       Зараз немає даних для повного аналізу. Повернися до сканера або повтори перевірку.
     </div>:<>
-      <section className="mb-3 grid gap-3 xl:grid-cols-[minmax(0,1fr)_290px]">
-        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className={`rounded-md px-2 py-1 text-xs font-semibold ${ready?"bg-emerald-950 text-emerald-200":"bg-amber-950 text-amber-200"}`}>
-              {ready?"Пройшов дослідний відбір":"Сценарій спостереження"}
-            </span>
-            <span className={`text-xs font-semibold ${plan.direction==="LONG"?"text-emerald-300":"text-rose-300"}`}>{plan.direction}</span>
-            <span className="text-xs text-slate-400">Оцінка {plan.score}/100 · Готовність {plan.readiness?.met??"—"}/{plan.readiness?.total??8}</span>
-          </div>
-          <p className="mt-2 text-sm font-medium">{ready?"Попередній відбір пройдено; перевір ризик перед Demo Limit.":"Очікуємо підтвердження, Demo Limit поки недоступний."}</p>
-          <p className="mt-1 text-sm leading-relaxed text-slate-400">{plan.summary}</p>
-          <div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-800 pt-2 sm:grid-cols-4">
-            {[
-              {name:"Limit-вхід",value:plan.entryPrice,color:"text-cyan-300"},
-              {name:"Зона",value:null,color:"text-slate-100"},
-              {name:"Take Profit",value:plan.takeProfit2,color:"text-emerald-300"},
-              {name:"Stop Loss",value:plan.stopLoss,color:"text-rose-300"},
-            ].map(item=><div key={item.name} className="min-w-0">
-              <p className="text-xs text-slate-500">{item.name}</p>
-              <p className={`mt-1 break-words text-sm font-semibold ${item.color}`}>{item.value===null?
-                `${number(plan.entryLow)}–${number(plan.entryHigh)}`:number(item.value)}</p>
-            </div>)}
-          </div>
-        </div>
-        <aside className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-sm">
-          <h2 className="font-semibold">Рішення за 10 секунд</h2>
-          <p className="mt-2 text-slate-300">R:R <strong>1:{plan.riskReward.toFixed(2)}</strong></p>
-          <p className="mt-2 text-slate-300">Поточна ціна <strong>{number(plan.currentPrice)}</strong></p>
-          <p className="mt-2 text-slate-300">Оновлення <strong>{plan.observation?.observedAt?when(plan.observation.observedAt):"Невідомо"}</strong></p>
-          <p className="mt-2 text-slate-300">Пошук Entry <strong>{plan.observation?.observedAt?`${when(plan.observation.observedAt)} – ${when(plan.observation.observedAt+86_400_000)}`:"До 24 годин від аналізу"}</strong></p>
-          <p className="mt-3 border-t border-slate-800 pt-3 text-xs text-amber-200">Горизонт пошуку Entry не дорівнює часу дії GTC-ордера й не гарантує виконання.</p>
-        </aside>
-      </section>
       <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1fr)_360px]"><section className="min-w-0 overflow-hidden rounded-xl border border-slate-800 bg-slate-900/50 p-3">
         <h2 className="mb-2 px-2 text-sm font-semibold">Графік і рівні Entry / SL / TP</h2>
         <TradingChart plan={plan}/>
       </section>
-      <div className="grid gap-3">
+      <aside className="rounded-xl border border-slate-700 bg-slate-900/70 p-4 xl:sticky xl:top-3">
+        <h2 className="text-lg font-semibold">Виконати угоду</h2>
+        <div className="mt-3 grid grid-cols-2 gap-2 text-center text-xs"><div className="rounded-lg bg-emerald-500 px-2 py-3 font-semibold text-slate-950">Bybit Demo · API</div><button type="button" disabled className="cursor-not-allowed rounded-lg border border-slate-700 px-2 py-3 text-slate-500">Реальний рахунок · не підключено</button></div>
+        <div className="mt-3 rounded-lg border border-amber-800 bg-amber-950/20 p-3"><p className="text-sm font-semibold text-amber-200">{ready?"Кандидат до ручної перевірки":"Очікуємо підтвердження"}</p><p className="mt-1 text-xs text-slate-300">{ready?"Перед заявкою потрібна серверна перевірка.":plan.qualityGate?.reasons[0]??plan.nextStep}</p><p className="mt-2 text-xs text-slate-400">Оцінка {plan.score}/100 · Готовність {plan.readiness?.met??0}/{plan.readiness?.total??8} · R:R 1:{plan.riskReward.toFixed(2)}</p></div>
+        <p className="mt-3 text-sm text-slate-300">Тип заявки <strong className="float-right">Limit (GTC)</strong></p>
+        <div className="mt-3 grid grid-cols-3 gap-2 text-xs"><div><p className="text-slate-400">Entry</p><p className="mt-1 rounded border border-slate-700 p-2 text-cyan-200">{number(plan.entryPrice)}</p></div><div><p className="text-slate-400">Stop Loss</p><p className="mt-1 rounded border border-slate-700 p-2 text-rose-300">{number(plan.stopLoss)}</p></div><div><p className="text-slate-400">Take Profit</p><p className="mt-1 rounded border border-slate-700 p-2 text-emerald-300">{number(plan.takeProfit2)}</p></div></div>
+        <p className="mt-3 text-xs text-slate-400">Кількість контрактів та еквівалент USDT будуть розраховані за Demo-балансом у торговій формі.</p>
+        {ready?<Link href={`/trade/${symbol}`} onClick={()=>localStorage.setItem("alpha-pulse-plan-v1",JSON.stringify(plan))} className="mt-4 block rounded-lg bg-emerald-500 px-3 py-3 text-center text-sm font-bold text-slate-950 hover:bg-emerald-400">Перейти до створення Demo Limit →</Link>:<button type="button" disabled className="mt-4 w-full cursor-not-allowed rounded-lg bg-slate-800 px-3 py-3 text-sm text-slate-500">Demo Limit · очікує підтвердження</button>}
+        <p className="mt-2 text-xs text-slate-500">Перехід до форми не виставляє ордер. Відправлення можливе тільки вручну.</p>
+      </aside>
+      </div>
+      <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4"><h2 className="font-semibold">Параметри угоди</h2><p className="mt-2 text-sm">Поточна ціна: {number(plan.currentPrice)}</p><p className="mt-2 text-sm">Зона Entry: {number(plan.entryLow)}–{number(plan.entryHigh)}</p><p className="mt-2 text-sm">R:R — 1:{plan.riskReward.toFixed(2)}</p></section>
         <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
           <h2 className="text-base font-semibold">Умови входу · {conditions.filter(c=>c.ok).length}/{conditions.length}</h2>
           <p className="mt-2 text-sm leading-relaxed text-slate-400">
@@ -179,6 +158,7 @@ function AnalysisView(){
             </ul>
           </details>
         </section>
+        <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4"><h2 className="font-semibold">Історія сценарію</h2><p className="mt-2 text-xs text-slate-400">Останнє спостереження: {plan.observation?.observedAt?when(plan.observation.observedAt):"невідомо"}</p><p className="mt-2 text-xs text-slate-400">Повний локальний журнал переходів буде додано окремо.</p></section>
         <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
           <h2 className="text-base font-semibold">Ризики та AI-пояснення</h2>
           <p className="mt-2 text-sm text-amber-200"><strong>Основний ризик:</strong> {plan.caution}</p>
@@ -210,7 +190,7 @@ function AnalysisView(){
             </div>}
           </details>
         </section>
-      </div></div>
+      </div>
       <p className="mt-3 text-xs text-slate-500">Demo Limit створюється тільки після твого натискання в торговій формі та актуальної серверної перевірки. Реальний рахунок не підключено.</p>
     </>}
   </main>;
