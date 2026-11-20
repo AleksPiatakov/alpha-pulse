@@ -110,6 +110,9 @@ function AnalysisView(){
     balance:account.balance,activeCount:account.activeCount,settings:defaultRiskSettings,
     entryPrice:plan.entryPrice,stopLoss:plan.stopLoss,takeProfit:plan.takeProfit2,availableBalance:account.availableBalance
   }):null;
+  const riskPct=sizing&&account?.balance?100*sizing.actualRisk/account.balance:null;
+  const exposurePct=sizing&&account?.balance?100*sizing.notional/account.balance:null;
+  const tpDiagnostic=plan?.tpObstacle;
   const money=(n:number)=>n.toLocaleString("uk-UA",{minimumFractionDigits:2,maximumFractionDigits:2});
   async function placeDemo(){
     if(!current||!ready||!sizing?.canOpen||placing)return;
@@ -208,7 +211,23 @@ function AnalysisView(){
             <strong>{sizing?.quantity.toLocaleString("uk-UA",{maximumFractionDigits:8})??"—"}</strong>
             <strong className="text-cyan-300">{sizing?"≈ "+money(sizing.notional)+" USDT":"— USDT"}</strong>
           </div>
-          <p className="mt-2 text-xs text-slate-400">Ризик: <span className="text-rose-300">{sizing?money(sizing.actualRisk)+" USDT":"—"}</span> · Потенційний TP: <span className="text-emerald-300">{sizing?money(sizing.potentialProfit)+" USDT":"—"}</span></p>
+          <div className="mt-3 rounded-lg border border-rose-900/60 bg-rose-950/20 px-3 py-2" title="Ризик — можлива втрата від Entry до Stop Loss у відсотках від поточного Demo equity, без комісій, прослизання та гепів. Номінал — інший показник.">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-medium text-slate-200">Ризик угоди · із Demo-балансу</span>
+              <strong className="text-sm text-rose-300">{riskPct!==null?riskPct.toFixed(2).replace(".",",")+"%":"—"} <span className="text-xs font-normal text-slate-400">/ максимум 1%</span></strong>
+            </div>
+            <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <span className="text-slate-400">{sizing?money(sizing.actualRisk)+" USDT":"—"}</span>
+              <span className="text-emerald-300">Потенційний TP: {sizing?money(sizing.potentialProfit)+" USDT":"—"}</span>
+            </div>
+            <p className="mt-1 text-[11px] text-slate-500">Номінал: {exposurePct!==null?exposurePct.toFixed(1).replace(".",",")+"% балансу":"—"} · це не ризик. Сукупний ліміт 3% перевіряється окремо.</p>
+          </div>
+          {tpDiagnostic?.status==="NEAR_OBSTACLE"&&<div className="mt-2 rounded-lg border border-amber-700/70 bg-amber-950/20 px-3 py-2 text-xs">
+            <strong className="text-amber-200">⚠ TP поблизу {plan.direction==="SHORT"?"денного мінімуму / підтримки":"денного максимуму / опору"}</strong>
+            <p className="mt-1 text-slate-300">Рівень: {number(tpDiagnostic.level??plan.takeProfit2)} · відхилення від TP: {tpDiagnostic.distancePercent??"—"}% · історія {tpDiagnostic.lookbackBars} закритих денних свічок.</p>
+            <p className="mt-1 text-slate-400">Це дослідне попередження, не оцінка ймовірності досягнення TP. Перед Demo-угодою перевір реакцію ціни на рівень.</p>
+          </div>}
+          {tpDiagnostic?.status==="INSUFFICIENT_DATA"&&<p className="mt-2 text-xs text-amber-200">Перевірка денних перешкод біля TP: недостатньо даних.</p>}
           {accountError&&<p className="mt-2 text-xs text-amber-200">Demo API: {accountError}</p>}
         </div>
         <button type="button" onClick={()=>void placeDemo()} disabled={!ready||!sizing?.canOpen||placing}
@@ -260,7 +279,7 @@ function AnalysisView(){
             <div className="flex justify-between gap-2"><dt>R:R</dt><dd>1:{plan.riskReward.toFixed(2)}</dd></div>
             <div className="flex justify-between gap-2"><dt>Відстань до Entry</dt><dd>{plan.limitEntry24h?.distanceAtr?.toFixed(2)??"—"} ATR</dd></div>
             <div className="flex justify-between gap-2"><dt>Stop Loss</dt><dd>{plan.qualityGate?.stopAtr?.toFixed(2)??"—"} ATR</dd></div>
-            <div className="flex justify-between gap-2"><dt>Ризик Demo</dt><dd>{sizing?money(sizing.actualRisk)+" USDT":"—"}</dd></div>
+            <div className="flex justify-between gap-2"><dt>Ризик Demo</dt><dd>{riskPct!==null?riskPct.toFixed(2)+"% · ":""}{sizing?money(sizing.actualRisk)+" USDT":"—"}</dd></div>
           </dl>
         </section>
         <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
