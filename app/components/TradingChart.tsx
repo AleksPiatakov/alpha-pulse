@@ -22,7 +22,7 @@ export function TradingChart({ plan }: { plan: TradePlan }) {
     const series = chart.addSeries(CandlestickSeries, { upColor: "#00c176", downColor: "#fb4b5c", borderVisible: false, wickUpColor: "#00c176", wickDownColor: "#fb4b5c", priceLineVisible: false, lastValueVisible: true, priceFormat: { type: "price", precision, minMove: 10 ** -precision },
       // Price lines alone do not extend the candle autoscale range.
       // Always fit the real Entry, Stop and final Take Profit into the viewport.
-      autoscaleInfoProvider: original => {
+      autoscaleInfoProvider: (original: () => {priceRange: {minValue: number; maxValue: number} | null} | null) => {
         const base = original();
         if (!base?.priceRange) return base;
         const levels = [plan.entryPrice, plan.stopLoss, plan.takeProfit2];
