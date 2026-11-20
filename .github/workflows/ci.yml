@@ -1,0 +1,25 @@
+name: Alpha Pulse safety checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Priority scanner regression tests
+        run: node --experimental-strip-types --test test/priority-recheck.test.mjs test/near-entry-recheck.test.mjs test/scan-freshness.test.mjs
+      - name: TypeScript validation
+        run: npx tsc --noEmit
+      - name: Production build
+        run: npm run build
