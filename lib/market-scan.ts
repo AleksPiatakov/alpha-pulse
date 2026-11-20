@@ -17,6 +17,7 @@ import { recordScenarioTransitions } from "./scenario-event-journal.ts";
 import { fetchLinearUniverse, matchUniverseTickers, type UniverseResult, type InstrumentMeta } from "./bybit-universe.ts";
 import { parseExecutionRules } from "./bybit-execution-rules.ts";
 import { roundToTick } from "./technical-plan-core.ts";
+import {assessTpObstacle} from "./tp-obstacle.ts";
 import { emaValues as ema, atrBars, trendBars, nearestSwingLevel, type PriceBar } from "./technical-plan-core.ts";
 
 type Ticker = { symbol: string; lastPrice: string; price24hPcnt: string; turnover24h: string };
@@ -120,6 +121,7 @@ async function makePlan(ticker: Ticker, reject: (reason: FilterReason) => null, 
       stopAtr: Number.isFinite(gate.stopAtr) ? Number(gate.stopAtr.toFixed(3)) : null,
       rewardRisk: Number.isFinite(gate.rewardRisk) ? Number(gate.rewardRisk.toFixed(3)) : null },
     structure: { confirmedEntry: levels.confirmedEntry, confirmedTarget: levels.confirmedTarget },
+    tpObstacle: assessTpObstacle(asBars(dailyCandles),direction,entryPrice,roundedStop,roundedTarget),
     limitEntry24h: reach,
     currentPrice: roundToTick(price, rules.tickSize),
     entryPrice,
