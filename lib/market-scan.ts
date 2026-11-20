@@ -1,4 +1,4 @@
-import { DEMO_BYBIT_URL, roundPrice, type PlanDirection, type TradePlan } from "@/lib/trading";
+import { DEMO_BYBIT_URL, type PlanDirection, type TradePlan } from "@/lib/trading";
 import { calculatePlanningLevels, assessPlanningLevels } from "./trade-planning-engine.ts";
 import { explainPlanLifecycle } from "./trade-plan-lifecycle.ts";
 import { closedMarketFeatures } from "./closed-market-features.ts";
