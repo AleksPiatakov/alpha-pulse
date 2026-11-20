@@ -59,7 +59,7 @@ function AnalysisView(){
   },[symbol]);
   useEffect(()=>{
     const initial=window.setTimeout(()=>void refresh(),0);
-    const interval=window.setInterval(()=>void refresh(),60_000);
+    const interval=window.setInterval(()=>void refresh(),30_000);
     return ()=>{window.clearTimeout(initial);window.clearInterval(interval);};
   },[refresh]);
   const plan=current??snapshot;
@@ -103,10 +103,10 @@ function AnalysisView(){
     <header className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-5">
       <div>
         <Link href="/" className="text-xs font-semibold text-emerald-300">← Усі можливості</Link>
-        <h1 className="mt-2 text-2xl font-bold">{symbol} <span className="text-base font-normal text-slate-400">· повний аналіз</span></h1>
+        <h1 className="mt-1 text-2xl font-bold">{symbol} <span className="text-base font-normal text-slate-400">· {current?.direction??snapshot?.direction??"аналіз"}</span></h1>
       </div>
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <button type="button" onClick={()=>void refresh()} className="rounded-lg border border-slate-700 px-3 py-2 hover:border-cyan-500">↻ Оновити</button>
+        <span className="text-xs text-emerald-300">● Автооновлення 30 с</span><button type="button" onClick={()=>void refresh()} className="rounded-lg border border-slate-700 px-3 py-2 hover:border-cyan-500">↻ Оновити</button>
         <a href={bybit(symbol)} target="_blank" rel="noopener noreferrer" className="rounded-lg border border-cyan-700 px-3 py-2 text-cyan-200 hover:border-cyan-400">↗ Відкрити Bybit</a>
       </div>
     </header>
@@ -121,7 +121,7 @@ function AnalysisView(){
     {!plan?<div className="rounded-xl border border-slate-800 p-7 text-slate-300">
       Зараз немає даних для повного аналізу. Повернися до сканера або повтори перевірку.
     </div>:<>
-      <section className="mb-5 grid gap-3 lg:grid-cols-[1fr_260px]">
+      <section className="mb-3 grid gap-3 xl:grid-cols-[minmax(0,1fr)_290px]">
         <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
           <div className="flex flex-wrap items-center gap-2">
             <span className={`rounded-md px-2 py-1 text-xs font-semibold ${ready?"bg-emerald-950 text-emerald-200":"bg-amber-950 text-amber-200"}`}>
@@ -130,9 +130,9 @@ function AnalysisView(){
             <span className={`text-xs font-semibold ${plan.direction==="LONG"?"text-emerald-300":"text-rose-300"}`}>{plan.direction}</span>
             <span className="text-xs text-slate-400">Оцінка {plan.score}/100 · Готовність {plan.readiness?.met??"—"}/{plan.readiness?.total??8}</span>
           </div>
-          <p className="mt-3 text-base font-medium">{ready?"Є технічно підтверджений план Limit-входу.":"Ідея аналізується; розміщення заявки передчасне."}</p>
+          <p className="mt-2 text-sm font-medium">{ready?"Попередній відбір пройдено; перевір ризик перед Demo Limit.":"Очікуємо підтвердження, Demo Limit поки недоступний."}</p>
           <p className="mt-1 text-sm leading-relaxed text-slate-400">{plan.summary}</p>
-          <div className="mt-4 grid grid-cols-2 gap-3 border-t border-slate-800 pt-3 sm:grid-cols-4">
+          <div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-800 pt-2 sm:grid-cols-4">
             {[
               {name:"Limit-вхід",value:plan.entryPrice,color:"text-cyan-300"},
               {name:"Зона",value:null,color:"text-slate-100"},
@@ -154,13 +154,13 @@ function AnalysisView(){
           <p className="mt-3 border-t border-slate-800 pt-3 text-xs text-amber-200">Горизонт пошуку Entry не дорівнює часу дії GTC-ордера й не гарантує виконання.</p>
         </aside>
       </section>
-      <section className="mb-5 overflow-hidden rounded-xl border border-slate-800 bg-slate-900/50 p-3">
+      <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1fr)_360px]"><section className="min-w-0 overflow-hidden rounded-xl border border-slate-800 bg-slate-900/50 p-3">
         <h2 className="mb-2 px-2 text-sm font-semibold">Графік і рівні Entry / SL / TP</h2>
         <TradingChart plan={plan}/>
       </section>
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(300px,0.85fr)]">
+      <div className="grid gap-3">
         <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-          <h2 className="text-lg font-semibold">Що має відбутися перед входом</h2>
+          <h2 className="text-base font-semibold">Умови входу · {conditions.filter(c=>c.ok).length}/{conditions.length}</h2>
           <p className="mt-2 text-sm leading-relaxed text-slate-400">
             {ready?"Усі поточні дослідницькі умови виконано. Перед ручним рішенням перевір ціну, ризик і термін придатності плану.":
              "Це умовний сценарій. Числа Entry/SL/TP — попередня гіпотеза, а не дозвіл на Limit-заявку."}
@@ -180,7 +180,7 @@ function AnalysisView(){
           </details>
         </section>
         <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-          <h2 className="text-lg font-semibold">Ризики та AI-пояснення</h2>
+          <h2 className="text-base font-semibold">Ризики та AI-пояснення</h2>
           <p className="mt-2 text-sm text-amber-200"><strong>Основний ризик:</strong> {plan.caution}</p>
           <details className="mt-4 border-t border-slate-800 pt-3 text-sm">
             <summary className="cursor-pointer font-semibold">Коли сценарій скасовується, а Stop Loss спрацьовує</summary>
@@ -210,8 +210,8 @@ function AnalysisView(){
             </div>}
           </details>
         </section>
-      </div>
-      <p className="mt-5 text-xs text-slate-500">Ця сторінка лише для аналізу. Вона не створює заявки. Дослідний статус не є прогнозом прибутковості; перед будь-якою Demo-заявкою потрібна окрема актуальна серверна перевірка.</p>
+      </div></div>
+      <p className="mt-3 text-xs text-slate-500">Demo Limit створюється тільки після твого натискання в торговій формі та актуальної серверної перевірки. Реальний рахунок не підключено.</p>
     </>}
   </main>;
 }
