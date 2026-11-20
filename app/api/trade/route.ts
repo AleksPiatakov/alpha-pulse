@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { bybitDemoRequest, isDemoTradingEnabled, DEMO_BYBIT_URL } from "@/lib/trading";
-import { parseExecutionRules, validateOrderPrecision } from "@/lib/bybit-execution-rules";
+import { parseExecutionRules } from "@/lib/bybit-execution-rules";
+import { normalizeDemoOrderQuantity } from "@/lib/bybit-quantity";
 import type { InstrumentMeta } from "@/lib/bybit-universe";
 import { verifyCurrentTechnicalPlan } from "@/lib/market-scan";
 import { GET as getDemoAccount } from "@/app/api/account/route";
@@ -60,10 +61,13 @@ export async function POST(request: Request) {
     const instrument = metadata.result?.list?.find((item) => item.symbol === symbol);
     const rules = parseExecutionRules(instrument);
     if (!rules) return error("Немає достовірних tickSize/qtyStep для інструмента.", 503);
-    const precisionErrors = validateOrderPrecision({
-      entry: price, stop: stopLoss, target: takeProfit, quantity: qty,
-    }, rules);
-    if (precisionErrors.length) return error(precisionErrors.join(" "), 409);
+    // Correct user-submitted estimated quantity down to Bybit qtyStep.
+    // Never round up: doing so could exceed the 1% risk or available margin.
+    const adjusted = normalizeDemoOrderQuantity({
+      entry:price,stop:stopLoss,target:takeProfit,quantity:qty,
+    },rules);
+    if(adjusted.errors.length)return error(adjusted.errors.join(" "),409);
+    const executableQty=adjusted.quantity;
 
     const accountResponse = await getDemoAccount();
     if (!accountResponse.ok) return error("Неможливо підтвердити Demo-баланс і ризик. Заявку заблоковано.", 503);
@@ -79,18 +83,18 @@ export async function POST(request: Request) {
       return error("Bybit не повернув доступну маржу. Безпечний розмір Demo-заявки не підтверджено.", 503);
     }
     // Never rely on browser position sizing. Conservative 1x cap; no assumed leverage.
-    const notional = qty * price;
+    const notional = executableQty * price;
     if (!Number.isFinite(notional) || notional > freeMargin + 1e-6) {
       return error("Номінал Demo-заявки перевищує доступну маржу Bybit (ліміт 1x).", 409);
     }
-    const expectedRisk = qty * Math.abs(price - stopLoss);
+    const expectedRisk = executableQty * Math.abs(price - stopLoss);
     if (!Number.isFinite(expectedRisk) || expectedRisk > equity * 0.01 + 1e-8) {
       return error("Ризик заявки перевищує серверний ліміт 1% Demo-балансу.", 409);
     }
     if (expectedRisk < 0.01) return error("Ризик заявки занадто малий.", 400);
-    const payload = JSON.stringify({ category: "linear", symbol, side, orderType: "Limit", qty: String(qty), price: String(price), timeInForce: "GTC", positionIdx: 0, stopLoss: String(stopLoss), takeProfit: String(takeProfit), tpTriggerBy: "MarkPrice", slTriggerBy: "MarkPrice", orderLinkId: `ap-${Date.now()}` });
+    const payload = JSON.stringify({ category: "linear", symbol, side, orderType: "Limit", qty: String(executableQty), price: String(price), timeInForce: "GTC", positionIdx: 0, stopLoss: String(stopLoss), takeProfit: String(takeProfit), tpTriggerBy: "MarkPrice", slTriggerBy: "MarkPrice", orderLinkId: `ap-${Date.now()}` });
     const response = await bybitDemoRequest<{ result: { orderId: string; orderLinkId: string } }>("/v5/order/create", "POST", payload);
-    return NextResponse.json({ success: true, data: response.result, environment: "demo" });
+    return NextResponse.json({ success: true, data: response.result, quantity:executableQty, adjustedQuantity:executableQty!==qty, environment: "demo" });
   } catch (caught) { return error(caught instanceof Error ? caught.message : "Не вдалося поставити заявку.", 502); }
 }
 
