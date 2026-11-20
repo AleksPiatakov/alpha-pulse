@@ -177,8 +177,8 @@ export default function MarketScanner() {
             {nearReady.map(p=><button type="button" key={p.id} onClick={()=>openPlan(p)}
               className="rounded-lg border border-amber-900/50 bg-slate-950/50 p-3 text-left hover:border-amber-500">
               <div className="flex items-center justify-between gap-2"><strong className="text-sm">{p.symbol}</strong><span className={p.direction==="LONG"?"text-xs text-emerald-300":"text-xs text-rose-300"}>{p.direction}</span></div>
-              <p className="mt-1 text-xs text-slate-300">Оцінка {p.score}/100 · готовність {p.readiness.met}/8 · R:R 1:{p.riskReward.toFixed(2)}</p>
-              <p className="mt-2 line-clamp-2 text-xs text-amber-200">{p.readiness.missing[0]??"Очікується підтвердження"}</p>
+              <p className="mt-1 text-xs text-slate-300">Оцінка {p.score}/100 · готовність {p.readiness?.met??"—"}/8 · R:R 1:{p.riskReward.toFixed(2)}</p>
+              <p className="mt-2 line-clamp-2 text-xs text-amber-200">{p.readiness?.missing?.[0]??"Очікується підтвердження"}</p>
               <p className="mt-2 text-[11px] text-slate-500">Тільки спостереження · Demo-заявка потребує 8/8 та всіх інших умов</p>
             </button>)}
           </div>:
