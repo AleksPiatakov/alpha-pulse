@@ -197,11 +197,14 @@ function AnalysisView(){
         <TradingChart plan={plan}/>
       </section>
       <aside className="rounded-xl border border-slate-700 bg-slate-900/70 p-4 lg:sticky lg:top-3">
-        <h2 className="text-lg font-semibold">Виконати угоду</h2>
-        <div className="mt-3 grid grid-cols-2 gap-2 text-center">
-          <div className={`mx-auto flex min-h-12 w-[90%] items-center justify-center rounded-lg px-2 py-2 text-center text-base font-extrabold text-white ${plan.direction==="SHORT"?"bg-rose-600":"bg-emerald-600"}`}>Bybit Demo · {plan.direction}</div>
-          <button type="button" disabled title="Реальний рахунок не підключено" className="cursor-not-allowed rounded-lg border border-slate-700 px-2 py-2 text-xs text-slate-500">Реальний рахунок · не підключено</button>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-lg font-semibold">Limit-заявка</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded border border-slate-700 px-2 py-1 text-[11px] font-semibold text-slate-300">BYBIT DEMO</span>
+            <span className={`rounded px-2 py-1 text-xs font-extrabold ${plan.direction==="SHORT"?"bg-rose-950 text-rose-300":"bg-emerald-950 text-emerald-300"}`}>{plan.direction}</span>
+          </div>
         </div>
+        <p className="mt-1 text-xs text-slate-500">Реальний рахунок не підключений · тільки Demo Limit</p>
         <div className="mt-3 rounded-lg border border-amber-800 bg-amber-950/20 p-3"><p className="text-sm font-semibold text-amber-200">{ready?"Кандидат до ручної перевірки":"Очікуємо підтвердження"}</p><p className="mt-1 text-xs text-slate-300">{ready?"Перед заявкою потрібна серверна перевірка.":plan.qualityGate?.reasons[0]??plan.nextStep}</p><p className="mt-2 text-xs text-slate-400">Оцінка {plan.score}/100 · Готовність {plan.readiness?.met??0}/{plan.readiness?.total??8} · R:R 1:{plan.riskReward.toFixed(2)}</p></div>
         <p className="mt-3 text-sm text-slate-300">Тип заявки <strong className="float-right">Limit (GTC)</strong></p>
         <div className="mt-3 grid grid-cols-3 gap-2 text-xs"><div><p className="text-slate-400">Entry</p><p className="mt-1 rounded border border-slate-700 p-2 text-cyan-200">{number(plan.entryPrice)}</p></div><div><p className="text-slate-400">Stop Loss</p><p className="mt-1 rounded border border-slate-700 p-2 text-rose-300">{number(plan.stopLoss)}</p></div><div><p className="text-slate-400">Take Profit</p><p className="mt-1 rounded border border-slate-700 p-2 text-emerald-300">{number(plan.takeProfit2)}</p></div></div>
@@ -232,11 +235,11 @@ function AnalysisView(){
         </div>
         <button type="button" onClick={()=>void placeDemo()} disabled={!ready||!sizing?.canOpen||placing}
           className={`mx-auto mt-4 block w-[90%] rounded-lg px-3 py-3 text-center text-base font-extrabold text-white shadow-sm transition disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500 ${plan.direction==="SHORT"?"bg-rose-600 hover:bg-rose-500":"bg-emerald-600 hover:bg-emerald-500"}`}>
-          {placing?"Передаємо Demo Limit…":ready?"Створити Demo Limit-угоду":"Demo Limit · очікує підтвердження"}
+          {placing?"Надсилаємо Limit-заявку…":ready?"Розмістити Limit-заявку":"Очікує підтвердження"}
         </button>
         {orderMessage&&<p role="status" className="mt-2 rounded border border-slate-700 p-2 text-xs">{orderMessage}</p>}
         <Link href={`/trade/${symbol}`} onClick={()=>localStorage.setItem("alpha-pulse-plan-v1",JSON.stringify(plan))} className="mt-2 block text-center text-xs text-cyan-300 hover:underline">Детальні параметри та історичні тести →</Link>
-        <p className="mt-2 text-xs text-slate-500">Заявка тільки на Demo після натискання. Сервер незалежно перевіряє ціну, крок кількості, маржу та ризик. Реальний рахунок заблокований.</p>
+        <p className="mt-2 text-xs text-slate-500">Після натискання надсилається відкладена заявка на Bybit Demo. Позиція відкриється лише за умови виконання заявки. Сервер повторно перевіряє параметри та ризик.</p>
       </aside>
       </div>
       <div className="mt-3 grid items-start gap-3 md:grid-cols-2 xl:grid-cols-4">
