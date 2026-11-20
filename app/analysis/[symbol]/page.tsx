@@ -208,37 +208,7 @@ function AnalysisView(){
       </div>
       <div className="mt-3 grid items-start gap-3 md:grid-cols-2 xl:grid-cols-4">
         <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-          <h2 className="font-semibold">Параметри угоди</h2>
-          <dl className="mt-3 space-y-2 text-xs text-slate-300">
-            <div className="flex justify-between gap-2"><dt>Поточна ціна</dt><dd>{number(plan.currentPrice)}</dd></div>
-            <div className="flex justify-between gap-2"><dt>Зона входу</dt><dd>{number(plan.entryLow)}–{number(plan.entryHigh)}</dd></div>
-            <div className="flex justify-between gap-2"><dt>R:R</dt><dd>1:{plan.riskReward.toFixed(2)}</dd></div>
-            <div className="flex justify-between gap-2"><dt>Відстань до Entry</dt><dd>{plan.limitEntry24h?.distanceAtr?.toFixed(2)??"—"} ATR</dd></div>
-            <div className="flex justify-between gap-2"><dt>Stop Loss</dt><dd>{plan.qualityGate?.stopAtr?.toFixed(2)??"—"} ATR</dd></div>
-            <div className="flex justify-between gap-2"><dt>Ризик Demo</dt><dd>{sizing?money(sizing.actualRisk)+" USDT":"—"}</dd></div>
-          </dl>
-        </section>
-        <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-          <h2 className="text-base font-semibold">Умови входу · {plan.readiness?.met??"—"}/{plan.readiness?.total??8}</h2>
-          <p className="mt-1 text-xs text-slate-400">Технічні критерії {conditions.filter(c=>c.ok).length}/{conditions.length}</p>
-
-          <div className="mt-3 space-y-2">
-            {conditions.map(c=><div key={c.label} className="flex items-start gap-2 border-b border-slate-800/50 pb-1 text-xs">
-              <span className={c.ok?"text-emerald-300":"text-amber-300"}>{c.ok?"✓":"○"}</span><span>{c.label}</span>
-            </div>)}
-          </div>
-          <p className="mt-3 text-xs text-cyan-200"><strong>Наступна дія:</strong> {plan.nextStep}</p>
-          <details className="mt-4 border-t border-slate-800 pt-3 text-sm">
-            <summary className="cursor-pointer font-semibold">Всі технічні факти та незавершені умови</summary>
-            <ul className="mt-3 list-disc space-y-2 pl-5 text-slate-300">
-              {plan.reasons.map((r,i)=><li key={i}>{r}</li>)}
-              {plan.qualityGate?.reasons.map((r,i)=><li key={`q-${i}`} className="text-amber-200">{r}</li>)}
-            </ul>
-          </details>
-        </section>
-        <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4"><h2 className="font-semibold">Історія сценарію</h2><p className="mt-2 text-xs text-slate-400">Локальна історія змін стану і рівнів, останні 30 записів</p><div className="mt-3 max-h-44 space-y-2 overflow-auto">{history.length?history.map(h=><div key={`${h.time}-${h.signature}`} className="border-b border-slate-800 pb-1 text-xs"><p className="text-amber-200">{h.label}</p><p className="text-slate-500">{when(h.time)}</p></div>):<p className="text-xs text-slate-500">Перший запис з’явиться після актуального аналізу.</p>}</div></section>
-        <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-          <h2 className="text-base font-semibold">Ризики та AI-пояснення</h2>
+          <h2 className="text-base font-semibold">✦ AI-аналіз · коротко</h2>
           <p className="mt-2 text-sm text-amber-200"><strong>Основний ризик:</strong> {plan.caution}</p>
           <details className="mt-4 border-t border-slate-800 pt-3 text-sm">
             <summary className="cursor-pointer font-semibold">Коли сценарій скасовується, а Stop Loss спрацьовує</summary>
@@ -268,6 +238,36 @@ function AnalysisView(){
             </div>}
           </details>
         </section>
+        <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+          <h2 className="font-semibold">Параметри угоди</h2>
+          <dl className="mt-3 space-y-2 text-xs text-slate-300">
+            <div className="flex justify-between gap-2"><dt>Поточна ціна</dt><dd>{number(plan.currentPrice)}</dd></div>
+            <div className="flex justify-between gap-2"><dt>Зона входу</dt><dd>{number(plan.entryLow)}–{number(plan.entryHigh)}</dd></div>
+            <div className="flex justify-between gap-2"><dt>R:R</dt><dd>1:{plan.riskReward.toFixed(2)}</dd></div>
+            <div className="flex justify-between gap-2"><dt>Відстань до Entry</dt><dd>{plan.limitEntry24h?.distanceAtr?.toFixed(2)??"—"} ATR</dd></div>
+            <div className="flex justify-between gap-2"><dt>Stop Loss</dt><dd>{plan.qualityGate?.stopAtr?.toFixed(2)??"—"} ATR</dd></div>
+            <div className="flex justify-between gap-2"><dt>Ризик Demo</dt><dd>{sizing?money(sizing.actualRisk)+" USDT":"—"}</dd></div>
+          </dl>
+        </section>
+        <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+          <h2 className="text-base font-semibold">Умови входу · {plan.readiness?.met??"—"}/{plan.readiness?.total??8}</h2>
+          <p className="mt-1 text-xs text-slate-400">Технічні критерії {conditions.filter(c=>c.ok).length}/{conditions.length}</p>
+
+          <div className="mt-3 space-y-2">
+            {conditions.map(c=><div key={c.label} className="flex items-start gap-2 border-b border-slate-800/50 pb-1 text-xs">
+              <span className={c.ok?"text-emerald-300":"text-amber-300"}>{c.ok?"✓":"○"}</span><span>{c.label}</span>
+            </div>)}
+          </div>
+          <p className="mt-3 text-xs text-cyan-200"><strong>Наступна дія:</strong> {plan.nextStep}</p>
+          <details className="mt-4 border-t border-slate-800 pt-3 text-sm">
+            <summary className="cursor-pointer font-semibold">Всі технічні факти та незавершені умови</summary>
+            <ul className="mt-3 list-disc space-y-2 pl-5 text-slate-300">
+              {plan.reasons.map((r,i)=><li key={i}>{r}</li>)}
+              {plan.qualityGate?.reasons.map((r,i)=><li key={`q-${i}`} className="text-amber-200">{r}</li>)}
+            </ul>
+          </details>
+        </section>
+        <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4"><h2 className="font-semibold">Історія сценарію</h2><p className="mt-2 text-xs text-slate-400">Локальна історія змін стану і рівнів, останні 30 записів</p><div className="mt-3 max-h-44 space-y-2 overflow-auto">{history.length?history.map(h=><div key={`${h.time}-${h.signature}`} className="border-b border-slate-800 pb-1 text-xs"><p className="text-amber-200">{h.label}</p><p className="text-slate-500">{when(h.time)}</p></div>):<p className="text-xs text-slate-500">Перший запис з’явиться після актуального аналізу.</p>}</div></section>
       </div>
       <p className="mt-3 text-xs text-slate-500">Demo Limit створюється тільки після твого натискання в торговій формі та актуальної серверної перевірки. Реальний рахунок не підключено.</p>
     </>}
