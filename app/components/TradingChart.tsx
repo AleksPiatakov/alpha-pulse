@@ -13,7 +13,7 @@ function pricePrecision(values: number[]) { return Math.min(8, Math.max(2, ...va
 
 export function TradingChart({ plan }: { plan: TradePlan }) {
   const hostRef = useRef<HTMLDivElement>(null); const chartRef = useRef<IChartApi | null>(null); const seriesRef = useRef<ISeriesApi<"Candlestick", Time> | null>(null); const candlesRef = useRef<Candle[]>([]); const positionOffsetRef = useRef(0); const dragRef = useRef<{ pointerId: number; clientX: number } | null>(null); const [overlay, setOverlay] = useState<Overlay>(); const [hover, setHover] = useState<{ y: number; price: number }>(); const [chartWidth, setChartWidth] = useState(1000); const [error, setError] = useState<string>();
-  const [timeframe, setTimeframe] = useState<Timeframe>("30");
+  const [timeframe, setTimeframe] = useState<Timeframe>("15");
 
   useEffect(() => {
     const host = hostRef.current; if (!host) return;
@@ -21,8 +21,15 @@ export function TradingChart({ plan }: { plan: TradePlan }) {
     const chart = createChart(host, { width: host.clientWidth, height: 420, layout: { background: { type: ColorType.Solid, color: "#0b1120" }, textColor: "#94a3b8", fontFamily: "Inter, ui-sans-serif, system-ui" }, grid: { vertLines: { color: "#182235" }, horzLines: { color: "#182235" } }, rightPriceScale: { borderColor: "#334155", scaleMargins: { top: .12, bottom: .12 } }, timeScale: { borderColor: "#334155", timeVisible: true, secondsVisible: false, rightOffset: 14 }, handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false }, handleScale: { mouseWheel: true, axisPressedMouseMove: true, pinch: true }, crosshair: { mode: CrosshairMode.Normal, vertLine: { visible: false, labelVisible: false }, horzLine: { visible: true, labelVisible: true, color: "#94a3b8", width: 1, style: LineStyle.Dashed, labelBackgroundColor: "#334155" } } });
     const series = chart.addSeries(CandlestickSeries, { upColor: "#00c176", downColor: "#fb4b5c", borderVisible: false, wickUpColor: "#00c176", wickDownColor: "#fb4b5c", priceLineVisible: false, lastValueVisible: true, priceFormat: { type: "price", precision, minMove: 10 ** -precision } });
     chartRef.current = chart; seriesRef.current = series;
-    // Invisible levels preserve an appropriate price scale without drawing on the chart.
-    [plan.takeProfit2, plan.takeProfit1, plan.entryPrice, plan.stopLoss].forEach((value) => series.createPriceLine({ price: value, color: "transparent", lineWidth: 1, axisLabelVisible: false, title: "" }));
+    // Grounded, visible entry/risk/profit lines, matching the approved workspace.
+    [
+      {price:plan.entryPrice,color:colors.zone,title:"Entry"},
+      {price:plan.stopLoss,color:colors.stop,title:"SL"},
+      {price:plan.takeProfit2,color:colors.profit2,title:"TP"},
+    ].forEach(level=>series.createPriceLine({
+      price:level.price,color:level.color,lineWidth:1,lineStyle:LineStyle.Dashed,
+      axisLabelVisible:true,title:level.title,
+    }));
     let disposed = false;
     const updateOverlay = () => {
       if (disposed || !hostRef.current || !seriesRef.current || !chartRef.current || !candlesRef.current.length) return;
