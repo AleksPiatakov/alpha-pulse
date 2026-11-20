@@ -13,6 +13,7 @@ import { ClosedCandleCache } from "./closed-candle-cache.ts";
 import { updateWatchedScenario, ageWatchedScenario, selectWatchedScenarios, type WatchedScenario } from "./scenario-watchlist.ts";
 import { assessScanFreshness } from "./scan-freshness.ts";
 import { selectPriorityRechecks } from "./priority-recheck.ts";
+import { recordScenarioTransitions } from "./scenario-event-journal.ts";
 import { fetchLinearUniverse, matchUniverseTickers, type UniverseResult, type InstrumentMeta } from "./bybit-universe.ts";
 import { parseExecutionRules } from "./bybit-execution-rules.ts";
 import { roundToTick } from "./technical-plan-core.ts";
@@ -268,6 +269,18 @@ async function doScan(): Promise<ScanResult> {
       }
     }
   });
+  // Persist meaningful priority transitions without granting an order permission.
+  // Disk errors do not block market scanning or silently approve a trade.
+  try{
+    await recordScenarioTransitions(results.map((result,i)=>({
+      symbol:batch[i].symbol,
+      plan:result.status==="fulfilled"?result.value:null,
+      unavailable:result.status==="rejected",
+    })),now);
+  }catch(error){
+    console.warn("Alpha Pulse scenario journal unavailable:",
+      error instanceof Error?error.message:String(error));
+  }
   for (const [symbol, record] of seenPlans) {
     if (now - record.checkedAt > PLAN_TTL) seenPlans.delete(symbol);
   }
