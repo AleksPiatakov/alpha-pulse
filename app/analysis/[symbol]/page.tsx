@@ -156,15 +156,15 @@ function AnalysisView(){
       setAiStatus({state:"fallback",code:"REQUEST_FAILED",message:error instanceof Error?error.message:"AI тимчасово недоступний."});
     }finally{setAiLoading(false);}
   }
-  return <main className="min-h-screen bg-slate-950 px-4 py-5 text-slate-100 md:px-8">
-    <header className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-5">
+  return <main className="min-h-screen bg-slate-950 px-3 py-3 text-slate-100 md:px-5">
+    <header className="mb-3 flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
       <div>
         <Link href="/" className="text-xs font-semibold text-emerald-300">← Усі можливості</Link>
         <h1 className="mt-1 text-2xl font-bold"><a href={bybit(symbol)} target="_blank" rel="noopener noreferrer" title="Відкрити пару на основній платформі Bybit для перегляду" className="hover:text-cyan-300">{symbol} ↗</a> <span className="text-base font-normal text-slate-400">· {current?.direction??snapshot?.direction??"аналіз"}</span></h1>
       </div>
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="text-xs text-emerald-300">● Автооновлення 30 с</span><button type="button" onClick={()=>void refresh()} className="rounded-lg border border-slate-700 px-3 py-2 hover:border-cyan-500">↻ Оновити</button>
-        <a href={bybit(symbol)} target="_blank" rel="noopener noreferrer" className="rounded-lg border border-cyan-700 px-3 py-2 text-cyan-200 hover:border-cyan-400">↗ Відкрити Bybit</a>
+        
       </div>
     </header>
 
@@ -178,19 +178,32 @@ function AnalysisView(){
     {!plan?<div className="rounded-xl border border-slate-800 p-7 text-slate-300">
       Зараз немає даних для повного аналізу. Повернися до сканера або повтори перевірку.
     </div>:<>
-      <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1fr)_360px]"><section className="min-w-0 overflow-hidden rounded-xl border border-slate-800 bg-slate-900/50 p-3">
-        <h2 className="mb-2 px-2 text-sm font-semibold">Графік і рівні Entry / SL / TP</h2>
+      <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_390px] xl:grid-cols-[minmax(0,1fr)_430px]"><section className="min-w-0 overflow-hidden rounded-xl border border-slate-800 bg-slate-900/50 p-2">
+        <div className="flex items-center justify-between px-2 pb-2"><h2 className="text-sm font-semibold">Графік</h2><span className="text-xs text-slate-400">Живі свічки Bybit · Entry / SL / TP</span></div>
         <TradingChart plan={plan}/>
       </section>
-      <aside className="rounded-xl border border-slate-700 bg-slate-900/70 p-4 xl:sticky xl:top-3">
+      <aside className="rounded-xl border border-slate-700 bg-slate-900/70 p-4 lg:sticky lg:top-3">
         <h2 className="text-lg font-semibold">Виконати угоду</h2>
         <div className="mt-3 grid grid-cols-2 gap-2 text-center text-xs"><div className="rounded-lg bg-emerald-500 px-2 py-3 font-semibold text-slate-950">Bybit Demo · API</div><button type="button" disabled className="cursor-not-allowed rounded-lg border border-slate-700 px-2 py-3 text-slate-500">Реальний рахунок · не підключено</button></div>
         <div className="mt-3 rounded-lg border border-amber-800 bg-amber-950/20 p-3"><p className="text-sm font-semibold text-amber-200">{ready?"Кандидат до ручної перевірки":"Очікуємо підтвердження"}</p><p className="mt-1 text-xs text-slate-300">{ready?"Перед заявкою потрібна серверна перевірка.":plan.qualityGate?.reasons[0]??plan.nextStep}</p><p className="mt-2 text-xs text-slate-400">Оцінка {plan.score}/100 · Готовність {plan.readiness?.met??0}/{plan.readiness?.total??8} · R:R 1:{plan.riskReward.toFixed(2)}</p></div>
         <p className="mt-3 text-sm text-slate-300">Тип заявки <strong className="float-right">Limit (GTC)</strong></p>
         <div className="mt-3 grid grid-cols-3 gap-2 text-xs"><div><p className="text-slate-400">Entry</p><p className="mt-1 rounded border border-slate-700 p-2 text-cyan-200">{number(plan.entryPrice)}</p></div><div><p className="text-slate-400">Stop Loss</p><p className="mt-1 rounded border border-slate-700 p-2 text-rose-300">{number(plan.stopLoss)}</p></div><div><p className="text-slate-400">Take Profit</p><p className="mt-1 rounded border border-slate-700 p-2 text-emerald-300">{number(plan.takeProfit2)}</p></div></div>
-        <p className="mt-3 text-xs text-slate-400">Кількість контрактів та еквівалент USDT будуть розраховані за Demo-балансом у торговій формі.</p>
-        {ready?<Link href={`/trade/${symbol}`} onClick={()=>localStorage.setItem("alpha-pulse-plan-v1",JSON.stringify(plan))} className="mt-4 block rounded-lg bg-emerald-500 px-3 py-3 text-center text-sm font-bold text-slate-950 hover:bg-emerald-400">Перейти до створення Demo Limit →</Link>:<button type="button" disabled className="mt-4 w-full cursor-not-allowed rounded-lg bg-slate-800 px-3 py-3 text-sm text-slate-500">Demo Limit · очікує підтвердження</button>}
-        <p className="mt-2 text-xs text-slate-500">Перехід до форми не виставляє ордер. Відправлення можливе тільки вручну.</p>
+        <div className="mt-3">
+          <p className="mb-1 text-xs text-slate-400">Кількість ({symbol.replace(/USDT$/,"")}) · номінал USDT</p>
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-700 bg-slate-950/50 px-3 py-2 text-sm">
+            <strong>{sizing?.quantity.toLocaleString("uk-UA",{maximumFractionDigits:8})??"—"}</strong>
+            <strong className="text-cyan-300">{sizing?"≈ "+money(sizing.notional)+" USDT":"— USDT"}</strong>
+          </div>
+          <p className="mt-2 text-xs text-slate-400">Ризик: <span className="text-rose-300">{sizing?money(sizing.actualRisk)+" USDT":"—"}</span> · Потенційний TP: <span className="text-emerald-300">{sizing?money(sizing.potentialProfit)+" USDT":"—"}</span></p>
+          {accountError&&<p className="mt-2 text-xs text-amber-200">Demo API: {accountError}</p>}
+        </div>
+        <button type="button" onClick={()=>void placeDemo()} disabled={!ready||!sizing?.canOpen||placing}
+          className="mt-4 w-full rounded-lg bg-emerald-500 px-3 py-3 text-center text-sm font-bold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500">
+          {placing?"Передаємо Demo Limit…":ready?"Створити Demo Limit-угоду":"Demo Limit · очікує підтвердження"}
+        </button>
+        {orderMessage&&<p role="status" className="mt-2 rounded border border-slate-700 p-2 text-xs">{orderMessage}</p>}
+        <Link href={`/trade/${symbol}`} onClick={()=>localStorage.setItem("alpha-pulse-plan-v1",JSON.stringify(plan))} className="mt-2 block text-center text-xs text-cyan-300 hover:underline">Детальні параметри та історичні тести →</Link>
+        <p className="mt-2 text-xs text-slate-500">Заявка тільки на Demo після натискання. Сервер незалежно перевіряє ціну, крок кількості, маржу та ризик. Реальний рахунок заблокований.</p>
       </aside>
       </div>
       <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
