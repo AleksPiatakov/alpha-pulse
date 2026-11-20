@@ -29,6 +29,7 @@ function AnalysisView(){
   const [aiStatus,setAiStatus]=useState<AiStatus|null>(null);
   const [aiLoading,setAiLoading]=useState(false);
   const [detailError,setDetailError]=useState("");
+  const [history,setHistory]=useState<Array<{time:number;signature:string;label:string}>>([]);
   useEffect(()=>{
     const initial=window.setTimeout(()=>{
       try{
@@ -62,6 +63,21 @@ function AnalysisView(){
     const interval=window.setInterval(()=>void refresh(),30_000);
     return ()=>{window.clearTimeout(initial);window.clearInterval(interval);};
   },[refresh]);
+  useEffect(()=>{
+    if(!current||freshness!=="verified")return;
+    const key="alpha-pulse-scenario-history-"+symbol;
+    try{
+      const stored=JSON.parse(localStorage.getItem(key)||"[]") as Array<{time:number;signature:string;label:string}>;
+      const previous=Array.isArray(stored)?stored.filter(x=>Number.isFinite(x.time)&&typeof x.signature==="string"&&typeof x.label==="string").slice(-29):[];
+      const signature=planSignature(current);
+      if(previous.at(-1)?.signature!==signature){
+        const label=current.status==="ACTIVE"&&current.qualityGate?.passed?"Пройшов фільтр якості":"Очікує перевірки";
+        previous.push({time:Date.now(),signature,label});
+        localStorage.setItem(key,JSON.stringify(previous.slice(-30)));
+      }
+      setHistory(previous.slice(-30).reverse());
+    }catch{setHistory([]);}
+  },[symbol,current,freshness]);
   const plan=current??snapshot;
   const verified=freshness==="verified"&&!!current;
   const ready=verified&&plan?.status==="ACTIVE"&&plan.qualityGate?.passed===true&&
@@ -158,7 +174,7 @@ function AnalysisView(){
             </ul>
           </details>
         </section>
-        <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4"><h2 className="font-semibold">Історія сценарію</h2><p className="mt-2 text-xs text-slate-400">Останнє спостереження: {plan.observation?.observedAt?when(plan.observation.observedAt):"невідомо"}</p><p className="mt-2 text-xs text-slate-400">Повний локальний журнал переходів буде додано окремо.</p></section>
+        <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4"><h2 className="font-semibold">Історія сценарію</h2><p className="mt-2 text-xs text-slate-400">Локальна історія змін стану і рівнів, останні 30 записів</p><div className="mt-3 max-h-44 space-y-2 overflow-auto">{history.length?history.map(h=><div key={`${h.time}-${h.signature}`} className="border-b border-slate-800 pb-1 text-xs"><p className="text-amber-200">{h.label}</p><p className="text-slate-500">{when(h.time)}</p></div>):<p className="text-xs text-slate-500">Перший запис з’явиться після актуального аналізу.</p>}</div></section>
         <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
           <h2 className="text-base font-semibold">Ризики та AI-пояснення</h2>
           <p className="mt-2 text-sm text-amber-200"><strong>Основний ризик:</strong> {plan.caution}</p>
